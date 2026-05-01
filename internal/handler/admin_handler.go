@@ -39,6 +39,18 @@ func (h *AdminHandler) GetRevenueStats(c *gin.Context) {
 	Success(c, http.StatusOK, stats)
 }
 
+// GetDailyRevenue returns daily revenue breakdown for charts
+func (h *AdminHandler) GetDailyRevenue(c *gin.Context) {
+	days, _ := strconv.Atoi(c.DefaultQuery("days", "7"))
+
+	data, err := h.analyticsRepo.GetDailyRevenue(c.Request.Context(), days)
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get daily revenue")
+		return
+	}
+	Success(c, http.StatusOK, data)
+}
+
 // GetRideStats returns ride analytics
 func (h *AdminHandler) GetRideStats(c *gin.Context) {
 	period := c.DefaultQuery("period", "today")
@@ -55,7 +67,8 @@ func (h *AdminHandler) GetRideStats(c *gin.Context) {
 func (h *AdminHandler) ListDrivers(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
-	status := c.DefaultQuery("status", "") // online, verified, pending, or empty for all
+	status := c.DefaultQuery("status", "")
+	search := c.DefaultQuery("search", "")
 
 	if page < 1 {
 		page = 1
@@ -64,7 +77,7 @@ func (h *AdminHandler) ListDrivers(c *gin.Context) {
 		perPage = 20
 	}
 
-	drivers, total, err := h.analyticsRepo.ListDrivers(c.Request.Context(), page, perPage, status)
+	drivers, total, err := h.analyticsRepo.ListDrivers(c.Request.Context(), page, perPage, status, search)
 	if err != nil {
 		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list drivers")
 		return
@@ -97,10 +110,45 @@ func (h *AdminHandler) VerifyDriver(c *gin.Context) {
 	Success(c, http.StatusOK, gin.H{"message": "Driver verified successfully"})
 }
 
-// ListRides returns paginated ride list for admin
+// GetDriverLeaderboard returns top drivers by revenue
+func (h *AdminHandler) GetDriverLeaderboard(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+
+	drivers, err := h.analyticsRepo.GetDriverLeaderboard(c.Request.Context(), limit)
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get leaderboard")
+		return
+	}
+	Success(c, http.StatusOK, drivers)
+}
+
+// GetRideDetail returns full ride details for admin
+func (h *AdminHandler) GetRideDetail(c *gin.Context) {
+	rideID := c.Param("id")
+	if rideID == "" {
+		Error(c, http.StatusBadRequest, "INVALID_ID", "Ride ID is required")
+		return
+	}
+
+	ride, err := h.analyticsRepo.GetRideDetail(c.Request.Context(), rideID)
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get ride detail")
+		return
+	}
+	if ride == nil {
+		Error(c, http.StatusNotFound, "RIDE_NOT_FOUND", "Ride not found")
+		return
+	}
+
+	Success(c, http.StatusOK, ride)
+}
+
+// ListRides returns paginated ride list for admin (ALL rides, not user-scoped)
 func (h *AdminHandler) ListRides(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+	status := c.DefaultQuery("status", "")
+	search := c.DefaultQuery("search", "")
 
 	if page < 1 {
 		page = 1
@@ -109,9 +157,18 @@ func (h *AdminHandler) ListRides(c *gin.Context) {
 		perPage = 20
 	}
 
-	// Reuse ride repo through analytics repo
-	// For now, simple query
-	Success(c, http.StatusOK, gin.H{
-		"message": "Use GET /rides/history with admin token for ride listing",
+	rides, total, err := h.analyticsRepo.ListRides(c.Request.Context(), page, perPage, status, search)
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list rides")
+		return
+	}
+
+	totalPages := int(math.Ceil(float64(total) / float64(perPage)))
+
+	SuccessWithMeta(c, http.StatusOK, rides, &Meta{
+		Page:       page,
+		PerPage:    perPage,
+		Total:      total,
+		TotalPages: totalPages,
 	})
 }

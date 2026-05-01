@@ -112,12 +112,12 @@ func main() {
 	// API v1 routes
 	v1 := r.Group("/api/v1")
 	{
-		// Auth (public)
+		// Auth (public, rate limited)
 		auth := v1.Group("/auth")
 		{
-			auth.POST("/register", authHandler.Register)
-			auth.POST("/login", authHandler.Login)
-			auth.POST("/refresh", authHandler.Refresh)
+			auth.POST("/register", middleware.RateLimit(5, time.Minute), authHandler.Register)
+			auth.POST("/login", middleware.RateLimit(10, time.Minute), authHandler.Login)
+			auth.POST("/refresh", middleware.RateLimit(30, time.Minute), authHandler.Refresh)
 			auth.POST("/logout", authHandler.Logout)
 		}
 
@@ -166,6 +166,7 @@ func main() {
 				admin.GET("/drivers/nearby", driverHandler.GetNearbyDrivers)
 				admin.PUT("/drivers/:id/verify", adminHandler.VerifyDriver)
 				admin.GET("/rides", adminHandler.ListRides)
+				admin.GET("/rides/:id", adminHandler.GetRideDetail)
 			}
 
 			// Analytics routes (accessible by admin)
@@ -173,7 +174,9 @@ func main() {
 			analytics.Use(middleware.RoleRequired("ADMIN"))
 			{
 				analytics.GET("/revenue", adminHandler.GetRevenueStats)
+				analytics.GET("/revenue/daily", adminHandler.GetDailyRevenue)
 				analytics.GET("/rides", adminHandler.GetRideStats)
+				analytics.GET("/drivers/leaderboard", adminHandler.GetDriverLeaderboard)
 			}
 		}
 	}
