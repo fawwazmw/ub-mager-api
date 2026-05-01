@@ -1,0 +1,87 @@
+# ─── UB-Mager API — Docker Compose ───────────────────
+#
+# All infrastructure services for the UB-Mager backend.
+# Run everything or pick what you need with profiles.
+#
+# Usage:
+#   docker compose up -d                          # Start ALL services
+#   docker compose --profile db up -d             # PostgreSQL + pgAdmin only
+#   docker compose --profile cache up -d          # Redis only
+#   docker compose --profile routing up -d        # OSRM only
+#   docker compose --profile db --profile cache up -d  # Combine profiles
+#   docker compose up -d osrm                     # Single service by name
+#   docker compose down                           # Stop everything
+#
+# If you already have services running (e.g. shared PostgreSQL/Redis),
+# just start what you need:
+#   docker compose up -d osrm
+# ─────────────────────────────────────────────────────
+
+services:
+  # ─── PostgreSQL + PostGIS + TimescaleDB ────────────
+  postgres:
+    image: timescale/timescaledb-ha:pg16
+    container_name: ubmager-postgres
+    restart: unless-stopped
+    profiles: [db, full]
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER:-ubmager}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ubmager}
+      POSTGRES_DB: ${DB_NAME:-ubmager}
+    volumes:
+      - postgres_data:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ubmager}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── pgAdmin ──────────────────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: ubmager-pgadmin
+    restart: unless-stopped
+    profiles: [db, full]
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@ubmager.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ─── Redis ────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ubmager-redis
+    restart: unless-stopped
+    profiles: [cache, full]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── OSRM Routing Engine ──────────────────────────
+  osrm:
+    image: osrm/osrm-backend:latest
+    container_name: ubmager-osrm
+    restart: unless-stopped
+    profiles: [routing, full]
+    ports:
+      - "${OSRM_PORT:-5000}:5000"
+    volumes:
+      - osrm_data:/data
+    command: osrm-routed --algorithm mld /data/java-latest.osrm
+
+volumes:
+  postgres_data:
+  redis_data:
+  osrm_data:

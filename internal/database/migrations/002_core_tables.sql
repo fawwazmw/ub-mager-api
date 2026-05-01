@@ -1,0 +1,3 @@
+-- Migration: 002_core_tables.sql
+-- Description: Create core tables (users, driver_profiles, rides, ride_events, ratings, earnings, notifications, surge_zones)
+-- TODO: implement migration

@@ -1,0 +1,3 @@
+-- Migration: 004_functions.sql
+-- Description: Create stored functions and triggers (nearby drivers, fare calculation, etc.)
+-- TODO: implement migration

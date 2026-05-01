@@ -1,0 +1,3 @@
+-- Migration: 001_extensions_and_enums.sql
+-- Description: Enable PostgreSQL extensions (PostGIS, uuid-ossp, TimescaleDB) and create enum types
+-- TODO: implement migration

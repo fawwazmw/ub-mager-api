@@ -1,0 +1,3 @@
+-- Migration: 003_indexes.sql
+-- Description: Create indexes for performance optimization (spatial, temporal, foreign key indexes)
+-- TODO: implement migration

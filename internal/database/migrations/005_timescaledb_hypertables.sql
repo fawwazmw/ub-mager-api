@@ -1,0 +1,3 @@
+-- Migration: 005_timescaledb_hypertables.sql
+-- Description: Convert time-series tables to TimescaleDB hypertables (ride_events, location_logs)
+-- TODO: implement migration
