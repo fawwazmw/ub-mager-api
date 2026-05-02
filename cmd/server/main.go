@@ -164,9 +164,13 @@ func main() {
 				admin.GET("/dashboard", adminHandler.GetDashboardStats)
 				admin.GET("/drivers", adminHandler.ListDrivers)
 				admin.GET("/drivers/nearby", driverHandler.GetNearbyDrivers)
+				admin.GET("/drivers/:id", adminHandler.GetDriverDetail)
 				admin.PUT("/drivers/:id/verify", adminHandler.VerifyDriver)
+				admin.PUT("/drivers/:id/status", adminHandler.ToggleDriverOnline)
 				admin.GET("/rides", adminHandler.ListRides)
+				admin.GET("/rides/counts", adminHandler.GetRideCountsByStatus)
 				admin.GET("/rides/:id", adminHandler.GetRideDetail)
+				admin.PUT("/rides/:id/cancel", adminHandler.CancelRide)
 			}
 
 			// Analytics routes (accessible by admin)

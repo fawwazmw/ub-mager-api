@@ -110,6 +110,73 @@ func (h *AdminHandler) VerifyDriver(c *gin.Context) {
 	Success(c, http.StatusOK, gin.H{"message": "Driver verified successfully"})
 }
 
+// GetRideCountsByStatus returns ride counts grouped by status
+func (h *AdminHandler) GetRideCountsByStatus(c *gin.Context) {
+	counts, err := h.analyticsRepo.GetRideCountsByStatus(c.Request.Context())
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get counts")
+		return
+	}
+	Success(c, http.StatusOK, counts)
+}
+
+// CancelRide allows admin to cancel any ride
+func (h *AdminHandler) CancelRide(c *gin.Context) {
+	rideID := c.Param("id")
+	var input struct {
+		Reason string `json:"reason"`
+	}
+	c.ShouldBindJSON(&input)
+
+	reason := input.Reason
+	if reason == "" {
+		reason = "Cancelled by admin"
+	}
+
+	err := h.analyticsRepo.AdminCancelRide(c.Request.Context(), rideID, reason)
+	if err != nil {
+		Error(c, http.StatusBadRequest, "CANCEL_FAILED", err.Error())
+		return
+	}
+
+	Success(c, http.StatusOK, gin.H{"message": "Ride cancelled"})
+}
+
+// GetDriverDetail returns full driver profile for admin
+func (h *AdminHandler) GetDriverDetail(c *gin.Context) {
+	driverID := c.Param("id")
+	detail, err := h.analyticsRepo.GetDriverDetail(c.Request.Context(), driverID)
+	if err != nil || detail == nil {
+		Error(c, http.StatusNotFound, "DRIVER_NOT_FOUND", "Driver not found")
+		return
+	}
+	Success(c, http.StatusOK, detail)
+}
+
+// ToggleDriverOnline forces a driver online/offline from admin
+func (h *AdminHandler) ToggleDriverOnline(c *gin.Context) {
+	driverID := c.Param("id")
+	var input struct {
+		IsOnline bool `json:"is_online"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		Error(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+
+	err := h.analyticsRepo.ToggleDriverOnline(c.Request.Context(), driverID, input.IsOnline)
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update driver status")
+		return
+	}
+
+	status := "offline"
+	if input.IsOnline {
+		status = "online"
+	}
+	Success(c, http.StatusOK, gin.H{"message": "Driver set to " + status})
+}
+
 // GetDriverLeaderboard returns top drivers by revenue
 func (h *AdminHandler) GetDriverLeaderboard(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))

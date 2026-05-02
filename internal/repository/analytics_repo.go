@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/wardayadev/ub-mager-api/internal/model"
@@ -202,17 +203,19 @@ func (r *AnalyticsRepository) ListDrivers(ctx context.Context, page, perPage int
 }
 
 type RideListItem struct {
-	ID             string   `json:"id"`
-	PassengerName  string   `json:"passenger_name"`
-	PassengerPhone string   `json:"passenger_phone"`
-	DriverName     *string  `json:"driver_name"`
-	Status         string   `json:"status"`
-	VehicleType    string   `json:"vehicle_type"`
-	PickupAddress  string   `json:"pickup_address"`
-	DropoffAddress string   `json:"dropoff_address"`
-	TotalFare      float64  `json:"total_fare"`
-	RequestedAt    time.Time `json:"requested_at"`
-	CompletedAt    *time.Time `json:"completed_at"`
+	ID                 string     `json:"id"`
+	PassengerName      string     `json:"passenger_name"`
+	PassengerPhone     string     `json:"passenger_phone"`
+	DriverName         *string    `json:"driver_name"`
+	Status             string     `json:"status"`
+	VehicleType        string     `json:"vehicle_type"`
+	PickupAddress      string     `json:"pickup_address"`
+	DropoffAddress     string     `json:"dropoff_address"`
+	EstimatedDistanceM float64    `json:"estimated_distance_m"`
+	EstimatedDurationS int        `json:"estimated_duration_s"`
+	TotalFare          float64    `json:"total_fare"`
+	RequestedAt        time.Time  `json:"requested_at"`
+	CompletedAt        *time.Time `json:"completed_at"`
 }
 
 func (r *AnalyticsRepository) ListRides(ctx context.Context, page, perPage int, status, search string) ([]RideListItem, int64, error) {
@@ -230,6 +233,8 @@ func (r *AnalyticsRepository) ListRides(ctx context.Context, page, perPage int, 
 			rides.vehicle_type,
 			rides.pickup_address,
 			rides.dropoff_address,
+			rides.estimated_distance_m,
+			rides.estimated_duration_s,
 			rides.total_fare,
 			rides.requested_at,
 			rides.completed_at
@@ -451,4 +456,128 @@ func (r *AnalyticsRepository) VerifyDriver(ctx context.Context, driverID string)
 			"is_verified": true,
 			"verified_at": now,
 		}).Error
+}
+
+type RideCountByStatus struct {
+	Status string `json:"status"`
+	Count  int64  `json:"count"`
+}
+
+func (r *AnalyticsRepository) GetRideCountsByStatus(ctx context.Context) ([]RideCountByStatus, error) {
+	var results []RideCountByStatus
+	err := r.db.WithContext(ctx).
+		Table("rides").
+		Select("status, COUNT(*) as count").
+		Where("deleted_at IS NULL").
+		Group("status").
+		Scan(&results).Error
+	return results, err
+}
+
+func (r *AnalyticsRepository) AdminCancelRide(ctx context.Context, rideID, reason string) error {
+	// Only cancel rides that are not already completed/cancelled
+	result := r.db.WithContext(ctx).
+		Table("rides").
+		Where("id = ? AND status NOT IN ?", rideID, []string{"COMPLETED", "CANCELLED"}).
+		Updates(map[string]interface{}{
+			"status":              "CANCELLED",
+			"cancelled_at":        time.Now(),
+			"cancellation_reason": reason,
+		})
+
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("ride not found or already completed/cancelled")
+	}
+	return result.Error
+}
+
+func (r *AnalyticsRepository) ToggleDriverOnline(ctx context.Context, driverID string, online bool) error {
+	updates := map[string]interface{}{
+		"is_online": online,
+	}
+	if !online {
+		updates["is_available"] = true
+	}
+	return r.db.WithContext(ctx).
+		Table("driver_profiles").
+		Where("id = ?", driverID).
+		Updates(updates).Error
+}
+
+func (r *AnalyticsRepository) GetDriverDetail(ctx context.Context, driverID string) (map[string]interface{}, error) {
+	var result struct {
+		ID             string     `json:"id"`
+		UserID         string     `json:"user_id"`
+		FullName       string     `json:"full_name"`
+		Phone          string     `json:"phone"`
+		Email          string     `json:"email"`
+		VehicleType    string     `json:"vehicle_type"`
+		VehicleBrand   string     `json:"vehicle_brand"`
+		VehicleModel   string     `json:"vehicle_model"`
+		VehicleYear    int        `json:"vehicle_year"`
+		VehicleColor   string     `json:"vehicle_color"`
+		LicensePlate   string     `json:"license_plate"`
+		LicenseNumber  string     `json:"license_number"`
+		IsOnline       bool       `json:"is_online"`
+		IsAvailable    bool       `json:"is_available"`
+		IsVerified     bool       `json:"is_verified"`
+		Rating         float64    `json:"rating"`
+		TotalTrips     int        `json:"total_trips"`
+		AcceptanceRate float64    `json:"acceptance_rate"`
+		TotalRevenue   float64    `json:"total_revenue"`
+		CreatedAt      time.Time  `json:"created_at"`
+		VerifiedAt     *time.Time `json:"verified_at"`
+	}
+
+	err := r.db.WithContext(ctx).
+		Table("driver_profiles").
+		Select(`
+			driver_profiles.id,
+			driver_profiles.user_id,
+			users.full_name,
+			users.phone,
+			users.email,
+			driver_profiles.vehicle_type,
+			driver_profiles.vehicle_brand,
+			driver_profiles.vehicle_model,
+			driver_profiles.vehicle_year,
+			driver_profiles.vehicle_color,
+			driver_profiles.license_plate,
+			driver_profiles.license_number,
+			driver_profiles.is_online,
+			driver_profiles.is_available,
+			driver_profiles.is_verified,
+			driver_profiles.rating_avg as rating,
+			driver_profiles.total_trips,
+			driver_profiles.acceptance_rate,
+			COALESCE(rev.total_revenue, 0) as total_revenue,
+			driver_profiles.created_at,
+			driver_profiles.verified_at
+		`).
+		Joins("JOIN users ON users.id = driver_profiles.user_id").
+		Joins(`LEFT JOIN (
+			SELECT driver_id, SUM(total_fare) as total_revenue
+			FROM rides WHERE status = 'COMPLETED'
+			GROUP BY driver_id
+		) rev ON rev.driver_id = driver_profiles.id`).
+		Where("driver_profiles.id = ?", driverID).
+		Scan(&result).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to map for flexible JSON
+	return map[string]interface{}{
+		"id": result.ID, "user_id": result.UserID, "full_name": result.FullName,
+		"phone": result.Phone, "email": result.Email, "vehicle_type": result.VehicleType,
+		"vehicle_brand": result.VehicleBrand, "vehicle_model": result.VehicleModel,
+		"vehicle_year": result.VehicleYear, "vehicle_color": result.VehicleColor,
+		"license_plate": result.LicensePlate, "license_number": result.LicenseNumber,
+		"is_online": result.IsOnline, "is_available": result.IsAvailable,
+		"is_verified": result.IsVerified, "rating": result.Rating,
+		"total_trips": result.TotalTrips, "acceptance_rate": result.AcceptanceRate,
+		"total_revenue": result.TotalRevenue, "created_at": result.CreatedAt,
+		"verified_at": result.VerifiedAt,
+	}, nil
 }
