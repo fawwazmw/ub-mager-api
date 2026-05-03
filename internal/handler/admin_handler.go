@@ -210,6 +210,55 @@ func (h *AdminHandler) GetRideDetail(c *gin.Context) {
 	Success(c, http.StatusOK, ride)
 }
 
+// GetPeakHours returns ride distribution by hour of day
+func (h *AdminHandler) GetPeakHours(c *gin.Context) {
+	days, _ := strconv.Atoi(c.DefaultQuery("days", "7"))
+	data, err := h.analyticsRepo.GetPeakHours(c.Request.Context(), days)
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get peak hours")
+		return
+	}
+	Success(c, http.StatusOK, data)
+}
+
+// BulkCancelStuckRides cancels all rides stuck in SEARCHING for 30+ minutes
+func (h *AdminHandler) BulkCancelStuckRides(c *gin.Context) {
+	affected, err := h.analyticsRepo.BulkCancelStuckRides(c.Request.Context(), "Auto-cancelled: no driver found within 30 minutes")
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to cancel stuck rides")
+		return
+	}
+	Success(c, http.StatusOK, map[string]interface{}{
+		"cancelled": affected,
+		"message":   "Stuck rides cancelled",
+	})
+}
+
+// GetDriverRides returns recent rides for a specific driver
+func (h *AdminHandler) GetDriverRides(c *gin.Context) {
+	driverID := c.Param("id")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "5"))
+
+	rides, err := h.analyticsRepo.GetDriverRides(c.Request.Context(), driverID, limit)
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get driver rides")
+		return
+	}
+	Success(c, http.StatusOK, rides)
+}
+
+// GetRecentActivity returns recent platform activity for the admin feed
+func (h *AdminHandler) GetRecentActivity(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+
+	activities, err := h.analyticsRepo.GetRecentActivity(c.Request.Context(), limit)
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get activity")
+		return
+	}
+	Success(c, http.StatusOK, activities)
+}
+
 // ListRides returns paginated ride list for admin (ALL rides, not user-scoped)
 func (h *AdminHandler) ListRides(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))

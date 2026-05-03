@@ -96,16 +96,60 @@ func main() {
 	}
 
 	r := gin.New()
+	r.Use(middleware.RequestID())
 	r.Use(middleware.Logger())
 	r.Use(middleware.CORS())
 	r.Use(gin.Recovery())
 
-	// Health check
+	r.GET("/ready", func(c *gin.Context) {
+		sqlDB, err := db.DB()
+		if err != nil || sqlDB.Ping() != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"ready": false})
+			return
+		}
+		if rdb.Ping(c.Request.Context()).Err() != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"ready": false})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"ready": true})
+	})
+
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "healthy",
-			"service": "ub-mager-api",
-			"time":    time.Now().Format(time.RFC3339),
+		checks := gin.H{}
+		healthy := true
+
+		sqlDB, err := db.DB()
+		if err != nil {
+			checks["database"] = gin.H{"status": "unhealthy", "error": err.Error()}
+			healthy = false
+		} else if err := sqlDB.Ping(); err != nil {
+			checks["database"] = gin.H{"status": "unhealthy", "error": err.Error()}
+			healthy = false
+		} else {
+			checks["database"] = gin.H{"status": "healthy"}
+		}
+
+		if err := rdb.Ping(c.Request.Context()).Err(); err != nil {
+			checks["redis"] = gin.H{"status": "unhealthy", "error": err.Error()}
+			healthy = false
+		} else {
+			checks["redis"] = gin.H{"status": "healthy"}
+		}
+
+		status := "healthy"
+		code := http.StatusOK
+		if !healthy {
+			status = "degraded"
+			code = http.StatusServiceUnavailable
+		}
+
+		c.JSON(code, gin.H{
+			"status":      status,
+			"service":     "ub-mager-api",
+			"version":     "1.0.0",
+			"time":        time.Now().Format(time.RFC3339),
+			"ws_clients":  wsHub.GetOnlineCount(),
+			"checks":      checks,
 		})
 	})
 
@@ -164,11 +208,14 @@ func main() {
 				admin.GET("/dashboard", adminHandler.GetDashboardStats)
 				admin.GET("/drivers", adminHandler.ListDrivers)
 				admin.GET("/drivers/nearby", driverHandler.GetNearbyDrivers)
-				admin.GET("/drivers/:id", adminHandler.GetDriverDetail)
-				admin.PUT("/drivers/:id/verify", adminHandler.VerifyDriver)
-				admin.PUT("/drivers/:id/status", adminHandler.ToggleDriverOnline)
-				admin.GET("/rides", adminHandler.ListRides)
-				admin.GET("/rides/counts", adminHandler.GetRideCountsByStatus)
+			admin.GET("/drivers/:id", adminHandler.GetDriverDetail)
+			admin.GET("/drivers/:id/rides", adminHandler.GetDriverRides)
+			admin.PUT("/drivers/:id/verify", adminHandler.VerifyDriver)
+			admin.PUT("/drivers/:id/status", adminHandler.ToggleDriverOnline)
+			admin.GET("/activity", adminHandler.GetRecentActivity)
+			admin.PUT("/rides/bulk-cancel", adminHandler.BulkCancelStuckRides)
+			admin.GET("/rides", adminHandler.ListRides)
+			admin.GET("/rides/counts", adminHandler.GetRideCountsByStatus)
 				admin.GET("/rides/:id", adminHandler.GetRideDetail)
 				admin.PUT("/rides/:id/cancel", adminHandler.CancelRide)
 			}
@@ -181,6 +228,7 @@ func main() {
 				analytics.GET("/revenue/daily", adminHandler.GetDailyRevenue)
 				analytics.GET("/rides", adminHandler.GetRideStats)
 				analytics.GET("/drivers/leaderboard", adminHandler.GetDriverLeaderboard)
+			analytics.GET("/peak-hours", adminHandler.GetPeakHours)
 			}
 		}
 	}

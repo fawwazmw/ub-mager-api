@@ -21,6 +21,7 @@ type DashboardStats struct {
 	TotalUsers       int64   `json:"total_users"`
 	TotalDrivers     int64   `json:"total_drivers"`
 	OnlineDrivers    int64   `json:"online_drivers"`
+	PendingDrivers   int64   `json:"pending_drivers"`
 	TotalRides       int64   `json:"total_rides"`
 	ActiveRides      int64   `json:"active_rides"`
 	CompletedToday   int64   `json:"completed_today"`
@@ -35,6 +36,7 @@ func (r *AnalyticsRepository) GetDashboardStats(ctx context.Context) (*Dashboard
 	r.db.WithContext(ctx).Model(&model.User{}).Count(&stats.TotalUsers)
 	r.db.WithContext(ctx).Model(&model.DriverProfile{}).Count(&stats.TotalDrivers)
 	r.db.WithContext(ctx).Model(&model.DriverProfile{}).Where("is_online = ?", true).Count(&stats.OnlineDrivers)
+	r.db.WithContext(ctx).Model(&model.DriverProfile{}).Where("is_verified = ?", false).Count(&stats.PendingDrivers)
 	r.db.WithContext(ctx).Model(&model.Ride{}).Count(&stats.TotalRides)
 	r.db.WithContext(ctx).Model(&model.Ride{}).
 		Where("status NOT IN ?", []model.RideStatus{model.RideStatusCompleted, model.RideStatusCancelled}).
@@ -108,12 +110,20 @@ func (r *AnalyticsRepository) GetRevenueStats(ctx context.Context, period string
 	return stats, nil
 }
 
+type VehicleTypeCount struct {
+	VehicleType string `json:"vehicle_type"`
+	Count       int64  `json:"count"`
+}
+
 type RideStats struct {
-	Period         string `json:"period"`
-	Total          int64  `json:"total"`
-	Completed      int64  `json:"completed"`
-	Cancelled      int64  `json:"cancelled"`
-	CompletionRate float64 `json:"completion_rate"`
+	Period         string             `json:"period"`
+	Total          int64              `json:"total"`
+	Completed      int64              `json:"completed"`
+	Cancelled      int64              `json:"cancelled"`
+	CompletionRate float64            `json:"completion_rate"`
+	AvgDistanceKm  float64            `json:"avg_distance_km"`
+	AvgDurationMin float64            `json:"avg_duration_min"`
+	ByVehicleType  []VehicleTypeCount `json:"by_vehicle_type"`
 }
 
 func (r *AnalyticsRepository) GetRideStats(ctx context.Context, period string) (*RideStats, error) {
@@ -149,6 +159,29 @@ func (r *AnalyticsRepository) GetRideStats(ctx context.Context, period string) (
 	if stats.Total > 0 {
 		stats.CompletionRate = float64(stats.Completed) / float64(stats.Total) * 100
 	}
+
+	var avgMetrics struct {
+		AvgDistance *float64
+		AvgDuration *float64
+	}
+	r.db.WithContext(ctx).Model(&model.Ride{}).
+		Select("COALESCE(AVG(estimated_distance_m), 0) / 1000.0 as avg_distance, COALESCE(AVG(estimated_duration_s), 0) / 60.0 as avg_duration").
+		Where("status = ? AND completed_at >= ?", model.RideStatusCompleted, since).
+		Scan(&avgMetrics)
+	if avgMetrics.AvgDistance != nil {
+		stats.AvgDistanceKm = *avgMetrics.AvgDistance
+	}
+	if avgMetrics.AvgDuration != nil {
+		stats.AvgDurationMin = *avgMetrics.AvgDuration
+	}
+
+	var vehicleCounts []VehicleTypeCount
+	r.db.WithContext(ctx).Model(&model.Ride{}).
+		Select("vehicle_type, COUNT(*) as count").
+		Where("created_at >= ?", since).
+		Group("vehicle_type").
+		Scan(&vehicleCounts)
+	stats.ByVehicleType = vehicleCounts
 
 	return stats, nil
 }
@@ -580,4 +613,194 @@ func (r *AnalyticsRepository) GetDriverDetail(ctx context.Context, driverID stri
 		"total_revenue": result.TotalRevenue, "created_at": result.CreatedAt,
 		"verified_at": result.VerifiedAt,
 	}, nil
+}
+
+type ActivityItem struct {
+	ID        string    `json:"id"`
+	Type      string    `json:"type"`
+	Message   string    `json:"message"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+func (r *AnalyticsRepository) GetRecentActivity(ctx context.Context, limit int) ([]ActivityItem, error) {
+	if limit < 1 || limit > 50 {
+		limit = 20
+	}
+
+	var rides []struct {
+		ID             string
+		Status         string
+		PassengerName  string
+		DriverName     *string
+		PickupAddress  string
+		DropoffAddress string
+		RequestedAt    time.Time
+		CompletedAt    *time.Time
+		CancelledAt    *time.Time
+	}
+
+	err := r.db.WithContext(ctx).
+		Table("rides").
+		Select(`rides.id, rides.status, 
+			pu.full_name as passenger_name, 
+			du.full_name as driver_name,
+			rides.pickup_address, rides.dropoff_address,
+			rides.requested_at, rides.completed_at, rides.cancelled_at`).
+		Joins("JOIN users pu ON pu.id = rides.passenger_id").
+		Joins("LEFT JOIN driver_profiles dp ON dp.id = rides.driver_profile_id").
+		Joins("LEFT JOIN users du ON du.id = dp.user_id").
+		Order("rides.updated_at DESC").
+		Limit(limit).
+		Scan(&rides).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	var newDrivers []struct {
+		ID        string
+		FullName  string
+		CreatedAt time.Time
+	}
+
+	r.db.WithContext(ctx).
+		Table("driver_profiles").
+		Select("driver_profiles.id, users.full_name, driver_profiles.created_at").
+		Joins("JOIN users ON users.id = driver_profiles.user_id").
+		Order("driver_profiles.created_at DESC").
+		Limit(5).
+		Scan(&newDrivers)
+
+	var activities []ActivityItem
+
+	for _, ride := range rides {
+		var actType, msg string
+		var ts time.Time
+
+		switch ride.Status {
+		case "COMPLETED":
+			actType = "ride_completed"
+			msg = fmt.Sprintf("%s completed ride to %s", ride.PassengerName, ride.DropoffAddress)
+			if ride.CompletedAt != nil {
+				ts = *ride.CompletedAt
+			} else {
+				ts = ride.RequestedAt
+			}
+		case "CANCELLED":
+			actType = "ride_cancelled"
+			msg = fmt.Sprintf("%s cancelled ride from %s", ride.PassengerName, ride.PickupAddress)
+			if ride.CancelledAt != nil {
+				ts = *ride.CancelledAt
+			} else {
+				ts = ride.RequestedAt
+			}
+		default:
+			actType = "ride_active"
+			driverStr := "waiting for driver"
+			if ride.DriverName != nil {
+				driverStr = *ride.DriverName
+			}
+			msg = fmt.Sprintf("%s → %s (%s)", ride.PassengerName, ride.DropoffAddress, driverStr)
+			ts = ride.RequestedAt
+		}
+
+		activities = append(activities, ActivityItem{
+			ID:        ride.ID,
+			Type:      actType,
+			Message:   msg,
+			Timestamp: ts,
+		})
+	}
+
+	for _, d := range newDrivers {
+		activities = append(activities, ActivityItem{
+			ID:        d.ID,
+			Type:      "driver_registered",
+			Message:   fmt.Sprintf("%s registered as driver", d.FullName),
+			Timestamp: d.CreatedAt,
+		})
+	}
+
+	return activities, nil
+}
+
+type DriverRideItem struct {
+	ID             string    `json:"id"`
+	Status         string    `json:"status"`
+	PassengerName  string    `json:"passenger_name"`
+	PickupAddress  string    `json:"pickup_address"`
+	DropoffAddress string    `json:"dropoff_address"`
+	TotalFare      float64   `json:"total_fare"`
+	RequestedAt    time.Time `json:"requested_at"`
+}
+
+type PeakHourItem struct {
+	Hour  int   `json:"hour"`
+	Count int64 `json:"count"`
+}
+
+func (r *AnalyticsRepository) GetPeakHours(ctx context.Context, days int) ([]PeakHourItem, error) {
+	if days < 1 || days > 90 {
+		days = 7
+	}
+	since := time.Now().AddDate(0, 0, -days)
+
+	var results []PeakHourItem
+	err := r.db.WithContext(ctx).
+		Table("rides").
+		Select("EXTRACT(HOUR FROM requested_at)::int as hour, COUNT(*) as count").
+		Where("requested_at >= ?", since).
+		Group("hour").
+		Order("hour ASC").
+		Scan(&results).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	hourMap := make(map[int]int64)
+	for _, r := range results {
+		hourMap[r.Hour] = r.Count
+	}
+
+	full := make([]PeakHourItem, 24)
+	for h := 0; h < 24; h++ {
+		full[h] = PeakHourItem{Hour: h, Count: hourMap[h]}
+	}
+
+	return full, nil
+}
+
+func (r *AnalyticsRepository) BulkCancelStuckRides(ctx context.Context, reason string) (int64, error) {
+	cutoff := time.Now().Add(-30 * time.Minute)
+	result := r.db.WithContext(ctx).
+		Model(&model.Ride{}).
+		Where("status = ? AND requested_at < ?", model.RideStatusSearching, cutoff).
+		Updates(map[string]interface{}{
+			"status":              model.RideStatusCancelled,
+			"cancelled_at":       time.Now(),
+			"cancellation_reason": reason,
+		})
+	return result.RowsAffected, result.Error
+}
+
+func (r *AnalyticsRepository) GetDriverRides(ctx context.Context, driverProfileID string, limit int) ([]DriverRideItem, error) {
+	if limit < 1 || limit > 20 {
+		limit = 5
+	}
+
+	var rides []DriverRideItem
+	err := r.db.WithContext(ctx).
+		Table("rides").
+		Select(`rides.id, rides.status, 
+			users.full_name as passenger_name,
+			rides.pickup_address, rides.dropoff_address,
+			rides.total_fare, rides.requested_at`).
+		Joins("JOIN users ON users.id = rides.passenger_id").
+		Where("rides.driver_id = ?", driverProfileID).
+		Order("rides.requested_at DESC").
+		Limit(limit).
+		Scan(&rides).Error
+
+	return rides, err
 }

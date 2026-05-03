@@ -25,7 +25,11 @@ func Logger() gin.HandlerFunc {
 			event = log.Error()
 		}
 
+		reqID, _ := c.Get("request_id")
+		reqIDStr, _ := reqID.(string)
+
 		event.
+			Str("request_id", reqIDStr).
 			Str("method", c.Request.Method).
 			Str("path", path).
 			Int("status", status).
