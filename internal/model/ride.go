@@ -39,9 +39,11 @@ type Ride struct {
 	PickupLat        float64        `gorm:"not null" json:"pickup_lat"`
 	PickupLng        float64        `gorm:"not null" json:"pickup_lng"`
 	PickupAddress    string         `gorm:"type:text;not null" json:"pickup_address"`
+	PickupZone       CampusZone     `gorm:"type:varchar(20)" json:"pickup_zone,omitempty"`
 	DropoffLat       float64        `gorm:"not null" json:"dropoff_lat"`
 	DropoffLng       float64        `gorm:"not null" json:"dropoff_lng"`
 	DropoffAddress   string         `gorm:"type:text;not null" json:"dropoff_address"`
+	DropoffZone      CampusZone     `gorm:"type:varchar(20)" json:"dropoff_zone,omitempty"`
 
 	// Route & fare
 	EstimatedDistanceM float64     `json:"estimated_distance_m"`

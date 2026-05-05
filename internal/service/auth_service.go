@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,7 +19,10 @@ var (
 	ErrPhoneAlreadyExists = errors.New("phone number already registered")
 	ErrEmailAlreadyExists = errors.New("email already registered")
 	ErrUserNotFound       = errors.New("user not found")
+	ErrInvalidCampusEmail = errors.New("email must be a valid @student.ub.ac.id address")
 )
+
+const campusEmailDomain = "@student.ub.ac.id"
 
 type AuthService struct {
 	userRepo   UserRepo
@@ -53,32 +57,42 @@ type AuthResponse struct {
 }
 
 type UserResponse struct {
-	ID        uuid.UUID `json:"id"`
-	Phone     string    `json:"phone"`
-	Email     string    `json:"email"`
-	FullName  string    `json:"full_name"`
-	Role      string    `json:"role"`
-	AvatarURL *string   `json:"avatar_url"`
-	IsActive  bool      `json:"is_active"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID                uuid.UUID `json:"id"`
+	Phone             string    `json:"phone"`
+	Email             string    `json:"email"`
+	FullName          string    `json:"full_name"`
+	Role              string    `json:"role"`
+	AvatarURL         *string   `json:"avatar_url"`
+	IsActive          bool      `json:"is_active"`
+	IsStudentVerified bool      `json:"is_student_verified"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 func toUserResponse(user *model.User) *UserResponse {
 	return &UserResponse{
-		ID:        user.ID,
-		Phone:     user.Phone,
-		Email:     user.Email,
-		FullName:  user.FullName,
-		Role:      string(user.Role),
-		AvatarURL: user.AvatarURL,
-		IsActive:  user.IsActive,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
+		ID:                user.ID,
+		Phone:             user.Phone,
+		Email:             user.Email,
+		FullName:          user.FullName,
+		Role:              string(user.Role),
+		AvatarURL:         user.AvatarURL,
+		IsActive:          user.IsActive,
+		IsStudentVerified: user.IsStudentVerified,
+		CreatedAt:         user.CreatedAt,
+		UpdatedAt:         user.UpdatedAt,
 	}
 }
 
+func isCampusEmail(email string) bool {
+	return strings.HasSuffix(strings.ToLower(email), campusEmailDomain)
+}
+
 func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*AuthResponse, string, error) {
+	if !isCampusEmail(input.Email) {
+		return nil, "", ErrInvalidCampusEmail
+	}
+
 	existing, err := s.userRepo.FindByPhone(ctx, input.Phone)
 	if err == nil && existing != nil {
 		return nil, "", ErrPhoneAlreadyExists
@@ -102,13 +116,14 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*AuthR
 
 	role := parseUserRole(input.Role)
 	user := &model.User{
-		ID:           uuid.New(),
-		FullName:     input.FullName,
-		Phone:        input.Phone,
-		Email:        input.Email,
-		PasswordHash: string(hashedPassword),
-		Role:         role,
-		IsActive:     true,
+		ID:                uuid.New(),
+		FullName:          input.FullName,
+		Phone:             input.Phone,
+		Email:             input.Email,
+		PasswordHash:      string(hashedPassword),
+		Role:              role,
+		IsActive:          true,
+		IsStudentVerified: isCampusEmail(input.Email),
 	}
 
 	if err := s.userRepo.Create(ctx, user); err != nil {

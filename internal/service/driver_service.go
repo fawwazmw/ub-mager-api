@@ -55,20 +55,22 @@ type VehicleInput struct {
 }
 
 type DriverProfileResponse struct {
-	DriverID       uuid.UUID        `json:"driver_id"`
-	UserID         uuid.UUID        `json:"user_id"`
-	FullName       string           `json:"full_name"`
-	Phone          string           `json:"phone"`
-	AvatarURL      *string          `json:"avatar_url"`
-	LicenseNumber  string           `json:"license_number"`
-	IsVerified     bool             `json:"is_verified"`
-	IsOnline       bool             `json:"is_online"`
-	Rating         float64          `json:"rating"`
-	TotalRides     int              `json:"total_rides"`
-	Vehicle        VehicleResponse  `json:"vehicle"`
-	Location       *LocationResponse `json:"current_location,omitempty"`
-	AcceptanceRate float64          `json:"acceptance_rate"`
-	CreatedAt      time.Time        `json:"created_at"`
+	DriverID          uuid.UUID        `json:"driver_id"`
+	UserID            uuid.UUID        `json:"user_id"`
+	FullName          string           `json:"full_name"`
+	Phone             string           `json:"phone"`
+	AvatarURL         *string          `json:"avatar_url"`
+	LicenseNumber     string           `json:"license_number"`
+	IsVerified        bool             `json:"is_verified"`
+	IsOnline          bool             `json:"is_online"`
+	IsStudentVerified bool             `json:"is_student_verified"`
+	Rating            float64          `json:"rating"`
+	TotalRides        int              `json:"total_rides"`
+	Vehicle           VehicleResponse  `json:"vehicle"`
+	Location          *LocationResponse `json:"current_location,omitempty"`
+	AcceptanceRate    float64          `json:"acceptance_rate"`
+	Badges            []string         `json:"badges"`
+	CreatedAt         time.Time        `json:"created_at"`
 }
 
 type VehicleResponse struct {
@@ -141,18 +143,21 @@ func (s *DriverService) GetProfile(ctx context.Context, userID uuid.UUID) (*Driv
 		return nil, err
 	}
 
+	badges := buildBadges(user.IsStudentVerified, profile.IsVerified, profile.TotalTrips, profile.RatingAvg)
+
 	resp := &DriverProfileResponse{
-		DriverID:       profile.ID,
-		UserID:         profile.UserID,
-		FullName:       user.FullName,
-		Phone:          user.Phone,
-		AvatarURL:      user.AvatarURL,
-		LicenseNumber:  profile.LicenseNumber,
-		IsVerified:     profile.IsVerified,
-		IsOnline:       profile.IsOnline,
-		Rating:         profile.RatingAvg,
-		TotalRides:     profile.TotalTrips,
-		AcceptanceRate: profile.AcceptanceRate,
+		DriverID:          profile.ID,
+		UserID:            profile.UserID,
+		FullName:          user.FullName,
+		Phone:             user.Phone,
+		AvatarURL:         user.AvatarURL,
+		LicenseNumber:     profile.LicenseNumber,
+		IsVerified:        profile.IsVerified,
+		IsOnline:          profile.IsOnline,
+		IsStudentVerified: user.IsStudentVerified,
+		Rating:            profile.RatingAvg,
+		TotalRides:        profile.TotalTrips,
+		AcceptanceRate:    profile.AcceptanceRate,
 		Vehicle: VehicleResponse{
 			Type:        string(profile.VehicleType),
 			PlateNumber: profile.LicensePlate,
@@ -161,6 +166,7 @@ func (s *DriverService) GetProfile(ctx context.Context, userID uuid.UUID) (*Driv
 			Year:        profile.VehicleYear,
 			Color:       profile.VehicleColor,
 		},
+		Badges:    badges,
 		CreatedAt: profile.CreatedAt,
 	}
 
@@ -312,4 +318,27 @@ func stringToVehicleType(s string) model.VehicleType {
 	default:
 		return model.VehicleMotorcycle
 	}
+}
+
+func buildBadges(isStudentVerified, isDriverVerified bool, totalTrips int, rating float64) []string {
+	var badges []string
+	if isStudentVerified {
+		badges = append(badges, "VERIFIED_STUDENT")
+	}
+	if isDriverVerified {
+		badges = append(badges, "VERIFIED_DRIVER")
+	}
+	if totalTrips >= 50 {
+		badges = append(badges, "TRUSTED_HELPER")
+	}
+	if totalTrips >= 100 {
+		badges = append(badges, "EXPERIENCED")
+	}
+	if rating >= 4.8 && totalTrips >= 20 {
+		badges = append(badges, "TOP_RATED")
+	}
+	if badges == nil {
+		badges = []string{}
+	}
+	return badges
 }

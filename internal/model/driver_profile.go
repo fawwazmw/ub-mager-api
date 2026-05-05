@@ -54,6 +54,7 @@ type DriverProfile struct {
 	// Verification
 	IsVerified     bool           `gorm:"not null;default:false" json:"is_verified"`
 	VerifiedAt     *time.Time     `json:"verified_at,omitempty"`
+	HomeZone       CampusZone     `gorm:"type:varchar(20)" json:"home_zone,omitempty"`
 
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`

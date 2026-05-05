@@ -16,6 +16,7 @@ type DashboardStats struct {
 	CompletedToday int64   `json:"completed_today"`
 	RevenueToday   float64 `json:"revenue_today"`
 	CancelledToday int64   `json:"cancelled_today"`
+	PendingReports int64   `json:"pending_reports"`
 }
 
 func (r *AnalyticsRepository) GetDashboardStats(ctx context.Context) (*DashboardStats, error) {
@@ -45,6 +46,10 @@ func (r *AnalyticsRepository) GetDashboardStats(ctx context.Context) (*Dashboard
 	if revenue.Total != nil {
 		stats.RevenueToday = *revenue.Total
 	}
+
+	r.db.WithContext(ctx).Model(&model.Report{}).
+		Where("status = ?", model.ReportStatusPending).
+		Count(&stats.PendingReports)
 
 	return &stats, nil
 }

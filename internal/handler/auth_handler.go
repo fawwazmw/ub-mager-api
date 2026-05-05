@@ -38,6 +38,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	resp, refreshToken, err := h.authService.Register(c.Request.Context(), input)
 	if err != nil {
 		switch {
+		case errors.Is(err, service.ErrInvalidCampusEmail):
+			Error(c, http.StatusBadRequest, "INVALID_EMAIL_DOMAIN", "Email must be a valid @student.ub.ac.id address")
 		case errors.Is(err, service.ErrPhoneAlreadyExists):
 			Error(c, http.StatusConflict, "PHONE_EXISTS", "Phone number already registered")
 		case errors.Is(err, service.ErrEmailAlreadyExists):

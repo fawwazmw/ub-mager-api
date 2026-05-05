@@ -48,7 +48,7 @@ func main() {
 	log.Info().Msg("connected to PostgreSQL")
 
 	// Auto-migrate
-	if err := db.AutoMigrate(&model.User{}, &model.DriverProfile{}, &model.Ride{}, &model.Rating{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.DriverProfile{}, &model.Ride{}, &model.Rating{}, &model.Report{}); err != nil {
 		log.Fatal().Err(err).Msg("failed to run auto-migration")
 	}
 	log.Info().Msg("database migrated")
@@ -78,6 +78,7 @@ func main() {
 	driverRepo := repository.NewDriverRepository(db)
 	rideRepo := repository.NewRideRepository(db)
 	analyticsRepo := repository.NewAnalyticsRepository(db)
+	reportRepo := repository.NewReportRepository(db)
 
 	// Initialize caches
 	driverGeoCache := cache.NewDriverGeoCache(rdb)
@@ -97,6 +98,8 @@ func main() {
 	driverHandler := handler.NewDriverHandler(driverService)
 	rideHandler := handler.NewRideHandler(rideService)
 	adminHandler := handler.NewAdminHandler(analyticsRepo)
+	reportHandler := handler.NewReportHandler(reportRepo)
+	userAdminHandler := handler.NewUserAdminHandler(userRepo)
 
 	// Setup Gin
 	if cfg.ServerEnv == "production" {
@@ -220,11 +223,17 @@ func main() {
 				drivers.PUT("/me/location", driverHandler.UpdateLocation)
 			}
 
+			// Reports
+			reports := protected.Group("/reports")
+			{
+				reports.POST("", reportHandler.Submit)
+			}
+
 			// Ride routes — Passenger
 			rides := protected.Group("/rides")
 			{
 				rides.POST("/estimate", rideHandler.Estimate)
-				rides.POST("", rideHandler.RequestRide)
+				rides.POST("", middleware.RateLimitByUser(3, time.Minute), rideHandler.RequestRide)
 				rides.GET("/active", rideHandler.GetActiveRide)
 				rides.GET("/history", rideHandler.GetHistory)
 				rides.GET("/:id", rideHandler.GetRide)
@@ -252,6 +261,15 @@ func main() {
 				admin.GET("/rides/counts", adminHandler.GetRideCountsByStatus)
 				admin.GET("/rides/:id", adminHandler.GetRideDetail)
 				admin.PUT("/rides/:id/cancel", adminHandler.CancelRide)
+
+				// Reports management
+				admin.GET("/reports", reportHandler.List)
+				admin.GET("/reports/pending-count", reportHandler.CountPending)
+				admin.PUT("/reports/:id/resolve", reportHandler.Resolve)
+
+				admin.GET("/users", userAdminHandler.ListUsers)
+				admin.PUT("/users/:id/suspend", userAdminHandler.SuspendUser)
+				admin.PUT("/users/:id/unsuspend", userAdminHandler.UnsuspendUser)
 			}
 
 			// Analytics routes (accessible by admin)

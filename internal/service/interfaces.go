@@ -22,6 +22,7 @@ type DriverRepo interface {
 	Update(ctx context.Context, profile *model.DriverProfile) error
 	UpdateLocation(ctx context.Context, driverID uuid.UUID, lat, lng, heading, speed float64) error
 	SetOnlineStatus(ctx context.Context, driverID uuid.UUID, isOnline bool) error
+	IncrementAcceptanceStats(ctx context.Context, driverID uuid.UUID, accepted bool) error
 	FindNearbyDrivers(ctx context.Context, lat, lng, radiusKm float64, vehicleType model.VehicleType, limit int) ([]model.DriverProfile, error)
 }
 

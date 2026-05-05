@@ -68,6 +68,23 @@ func (r *DriverRepository) SetOnlineStatus(ctx context.Context, driverID uuid.UU
 		Updates(updates).Error
 }
 
+func (r *DriverRepository) IncrementAcceptanceStats(ctx context.Context, driverID uuid.UUID, accepted bool) error {
+	if accepted {
+		return r.db.WithContext(ctx).
+			Model(&model.DriverProfile{}).
+			Where("id = ?", driverID).
+			UpdateColumn("acceptance_rate",
+				gorm.Expr("LEAST(100, (acceptance_rate * total_trips + 100) / (total_trips + 1))"),
+			).Error
+	}
+	return r.db.WithContext(ctx).
+		Model(&model.DriverProfile{}).
+		Where("id = ?", driverID).
+		UpdateColumn("acceptance_rate",
+			gorm.Expr("GREATEST(0, (acceptance_rate * total_trips) / (total_trips + 1))"),
+		).Error
+}
+
 func (r *DriverRepository) FindNearbyDrivers(ctx context.Context, lat, lng, radiusKm float64, vehicleType model.VehicleType, limit int) ([]model.DriverProfile, error) {
 	var drivers []model.DriverProfile
 

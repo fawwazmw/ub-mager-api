@@ -66,6 +66,8 @@ type RequestRideInput struct {
 	Dropoff       LocationWithAddress `json:"dropoff" binding:"required"`
 	VehicleType   string              `json:"vehicle_type" binding:"required,oneof=motorcycle car car_xl"`
 	PaymentMethod string              `json:"payment_method" binding:"required,oneof=cash ewallet"`
+	PickupZone    string              `json:"pickup_zone"`
+	DropoffZone   string              `json:"dropoff_zone"`
 	Notes         string              `json:"notes" binding:"max=200"`
 }
 
@@ -116,9 +118,11 @@ func (s *RideService) RequestRide(ctx context.Context, passengerID uuid.UUID, in
 		PickupLat:          input.Pickup.Lat,
 		PickupLng:          input.Pickup.Lng,
 		PickupAddress:      input.Pickup.Address,
+		PickupZone:         model.CampusZone(input.PickupZone),
 		DropoffLat:         input.Dropoff.Lat,
 		DropoffLng:         input.Dropoff.Lng,
 		DropoffAddress:     input.Dropoff.Address,
+		DropoffZone:        model.CampusZone(input.DropoffZone),
 		EstimatedDistanceM: distanceM,
 		EstimatedDurationS: durationS,
 		BaseFare:           fare.TotalEstimate,
@@ -196,10 +200,16 @@ func (s *RideService) AcceptRide(ctx context.Context, rideID, userID uuid.UUID) 
 	}
 
 	now := time.Now()
-	return s.rideRepo.UpdateStatus(ctx, rideID, model.RideStatusMatched, map[string]any{
+	err = s.rideRepo.UpdateStatus(ctx, rideID, model.RideStatusMatched, map[string]any{
 		"driver_id":  profile.ID,
 		"matched_at": now,
 	})
+	if err != nil {
+		return err
+	}
+
+	_ = s.driverRepo.IncrementAcceptanceStats(ctx, profile.ID, true)
+	return nil
 }
 
 func (s *RideService) UpdateRideStatus(ctx context.Context, rideID uuid.UUID, userID uuid.UUID, newStatus model.RideStatus) error {
