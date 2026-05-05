@@ -23,10 +23,12 @@ dev: ## Run in development mode
 	@echo "$(YELLOW)Starting dev server...$(RESET)"
 	go run ./cmd/server
 
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+
 build: ## Build the binary
-	@echo "$(YELLOW)Building...$(RESET)"
-	CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/server ./cmd/server
-	@echo "$(GREEN)Build complete: bin/server$(RESET)"
+	@echo "$(YELLOW)Building $(VERSION)...$(RESET)"
+	CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=$(VERSION)" -o bin/server ./cmd/server
+	@echo "$(GREEN)Build complete: bin/server ($(VERSION))$(RESET)"
 
 run: build ## Build and run
 	./bin/server

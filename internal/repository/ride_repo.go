@@ -32,8 +32,7 @@ func (r *RideRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Rid
 func (r *RideRepository) FindActiveByPassenger(ctx context.Context, passengerID uuid.UUID) (*model.Ride, error) {
 	var ride model.Ride
 	err := r.db.WithContext(ctx).
-		Where("passenger_id = ? AND status NOT IN ?", passengerID,
-			[]model.RideStatus{model.RideStatusCompleted, model.RideStatusCancelled}).
+		Where("passenger_id = ? AND status NOT IN ?", passengerID, model.TerminalStatuses).
 		Order("created_at DESC").
 		First(&ride).Error
 	if err != nil {
@@ -45,8 +44,7 @@ func (r *RideRepository) FindActiveByPassenger(ctx context.Context, passengerID 
 func (r *RideRepository) FindActiveByDriver(ctx context.Context, driverID uuid.UUID) (*model.Ride, error) {
 	var ride model.Ride
 	err := r.db.WithContext(ctx).
-		Where("driver_id = ? AND status NOT IN ?", driverID,
-			[]model.RideStatus{model.RideStatusCompleted, model.RideStatusCancelled}).
+		Where("driver_id = ? AND status NOT IN ?", driverID, model.TerminalStatuses).
 		Order("created_at DESC").
 		First(&ride).Error
 	if err != nil {
@@ -59,7 +57,7 @@ func (r *RideRepository) Update(ctx context.Context, ride *model.Ride) error {
 	return r.db.WithContext(ctx).Save(ride).Error
 }
 
-func (r *RideRepository) UpdateStatus(ctx context.Context, rideID uuid.UUID, status model.RideStatus, updates map[string]interface{}) error {
+func (r *RideRepository) UpdateStatus(ctx context.Context, rideID uuid.UUID, status model.RideStatus, updates map[string]any) error {
 	updates["status"] = status
 	return r.db.WithContext(ctx).
 		Model(&model.Ride{}).
@@ -72,12 +70,12 @@ func (r *RideRepository) FindHistory(ctx context.Context, userID uuid.UUID, role
 	var total int64
 
 	query := r.db.WithContext(ctx).Model(&model.Ride{})
-	if role == "PASSENGER" {
+	if role == string(model.RolePassenger) {
 		query = query.Where("passenger_id = ?", userID)
 	} else {
 		query = query.Where("driver_id = ?", userID)
 	}
-	query = query.Where("status IN ?", []model.RideStatus{model.RideStatusCompleted, model.RideStatusCancelled})
+	query = query.Where("status IN ?", model.TerminalStatuses)
 
 	query.Count(&total)
 
@@ -86,7 +84,6 @@ func (r *RideRepository) FindHistory(ctx context.Context, userID uuid.UUID, role
 	return rides, total, err
 }
 
-// Rating methods
 func (r *RideRepository) CreateRating(ctx context.Context, rating *model.Rating) error {
 	return r.db.WithContext(ctx).Create(rating).Error
 }

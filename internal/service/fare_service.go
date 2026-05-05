@@ -2,7 +2,6 @@ package service
 
 import "github.com/wardayadev/ub-mager-api/internal/model"
 
-// FareConfig holds pricing parameters per vehicle type
 type FareConfig struct {
 	BaseFare      float64 // IDR
 	PerKmRate     float64 // IDR per km
@@ -45,7 +44,6 @@ type FareBreakdown struct {
 	TotalEstimate   float64 `json:"total_estimate"`
 }
 
-// CalculateFare computes the fare for a ride
 func CalculateFare(vehicleType model.VehicleType, distanceM float64, durationS int, surgeMultiplier float64) FareBreakdown {
 	cfg, ok := fareConfigs[vehicleType]
 	if !ok {
@@ -66,11 +64,9 @@ func CalculateFare(vehicleType model.VehicleType, distanceM float64, durationS i
 	timeFare := durationMin * cfg.PerMinuteRate
 	subtotal := cfg.BaseFare + distanceFare + timeFare
 
-	// Apply surge
 	surgeAmount := subtotal * (surgeMultiplier - 1.0)
 	surgedTotal := subtotal + surgeAmount
 
-	// Apply minimum fare
 	if surgedTotal < cfg.MinFare {
 		surgedTotal = cfg.MinFare
 	}

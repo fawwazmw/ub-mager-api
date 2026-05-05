@@ -25,7 +25,7 @@ import (
 	"github.com/wardayadev/ub-mager-api/internal/ws"
 )
 
-
+var version = "dev"
 
 func main() {
 	// Setup zerolog
@@ -61,8 +61,16 @@ func main() {
 	log.Info().Msg("connected to Redis")
 
 	// Initialize JWT service
-	accessTTL, _ := strconv.Atoi(cfg.JWTAccessTokenTTL)
-	refreshTTL, _ := strconv.Atoi(cfg.JWTRefreshTokenTTL)
+	accessTTL, err := strconv.Atoi(cfg.JWTAccessTokenTTL)
+	if err != nil || accessTTL <= 0 {
+		accessTTL = 15 // default 15 minutes
+		log.Warn().Str("raw", cfg.JWTAccessTokenTTL).Int("default", accessTTL).Msg("invalid JWT_ACCESS_TOKEN_TTL, using default")
+	}
+	refreshTTL, err := strconv.Atoi(cfg.JWTRefreshTokenTTL)
+	if err != nil || refreshTTL <= 0 {
+		refreshTTL = 10080 // default 7 days in minutes
+		log.Warn().Str("raw", cfg.JWTRefreshTokenTTL).Int("default", refreshTTL).Msg("invalid JWT_REFRESH_TOKEN_TTL, using default")
+	}
 	jwtService := jwtpkg.NewJWTService(cfg.JWTSecret, accessTTL, refreshTTL)
 
 	// Initialize repositories
@@ -84,7 +92,7 @@ func main() {
 	rideService := service.NewRideService(rideRepo, driverRepo, userRepo)
 
 	// Initialize handlers
-	authHandler := handler.NewAuthHandler(authService)
+	authHandler := handler.NewAuthHandler(authService, cfg.ServerEnv == "production", jwtService.GetRefreshTTL())
 	userHandler := handler.NewUserHandler(authService)
 	driverHandler := handler.NewDriverHandler(driverService)
 	rideHandler := handler.NewRideHandler(rideService)
@@ -98,42 +106,64 @@ func main() {
 	r := gin.New()
 	r.Use(middleware.RequestID())
 	r.Use(middleware.Logger())
-	r.Use(middleware.CORS())
+	r.Use(middleware.CORS(cfg.CORSOrigins))
+	r.Use(middleware.BodyLimit(1 << 20)) // 1MB max request body
+	r.Use(middleware.Timeout(30 * time.Second))
 	r.Use(gin.Recovery())
+
+	type readyResponse struct {
+		Ready bool `json:"ready"`
+	}
+	type serviceCheck struct {
+		Status string `json:"status"`
+		Error  string `json:"error,omitempty"`
+	}
+	type healthResponse struct {
+		Status    string                  `json:"status"`
+		Service   string                  `json:"service"`
+		Version   string                  `json:"version"`
+		Time      string                  `json:"time"`
+		WsClients int                     `json:"ws_clients"`
+		Checks    map[string]serviceCheck `json:"checks"`
+	}
+	type versionResponse struct {
+		Version string `json:"version"`
+		Service string `json:"service"`
+	}
 
 	r.GET("/ready", func(c *gin.Context) {
 		sqlDB, err := db.DB()
 		if err != nil || sqlDB.Ping() != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"ready": false})
+			c.JSON(http.StatusServiceUnavailable, readyResponse{Ready: false})
 			return
 		}
 		if rdb.Ping(c.Request.Context()).Err() != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"ready": false})
+			c.JSON(http.StatusServiceUnavailable, readyResponse{Ready: false})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"ready": true})
+		c.JSON(http.StatusOK, readyResponse{Ready: true})
 	})
 
 	r.GET("/health", func(c *gin.Context) {
-		checks := gin.H{}
+		checks := map[string]serviceCheck{}
 		healthy := true
 
 		sqlDB, err := db.DB()
 		if err != nil {
-			checks["database"] = gin.H{"status": "unhealthy", "error": err.Error()}
+			checks["database"] = serviceCheck{Status: "unhealthy", Error: err.Error()}
 			healthy = false
 		} else if err := sqlDB.Ping(); err != nil {
-			checks["database"] = gin.H{"status": "unhealthy", "error": err.Error()}
+			checks["database"] = serviceCheck{Status: "unhealthy", Error: err.Error()}
 			healthy = false
 		} else {
-			checks["database"] = gin.H{"status": "healthy"}
+			checks["database"] = serviceCheck{Status: "healthy"}
 		}
 
 		if err := rdb.Ping(c.Request.Context()).Err(); err != nil {
-			checks["redis"] = gin.H{"status": "unhealthy", "error": err.Error()}
+			checks["redis"] = serviceCheck{Status: "unhealthy", Error: err.Error()}
 			healthy = false
 		} else {
-			checks["redis"] = gin.H{"status": "healthy"}
+			checks["redis"] = serviceCheck{Status: "healthy"}
 		}
 
 		status := "healthy"
@@ -143,14 +173,18 @@ func main() {
 			code = http.StatusServiceUnavailable
 		}
 
-		c.JSON(code, gin.H{
-			"status":      status,
-			"service":     "ub-mager-api",
-			"version":     "1.0.0",
-			"time":        time.Now().Format(time.RFC3339),
-			"ws_clients":  wsHub.GetOnlineCount(),
-			"checks":      checks,
+		c.JSON(code, healthResponse{
+			Status:    status,
+			Service:   "ub-mager-api",
+			Version:   version,
+			Time:      time.Now().Format(time.RFC3339),
+			WsClients: wsHub.GetOnlineCount(),
+			Checks:    checks,
 		})
+	})
+
+	r.GET("/version", func(c *gin.Context) {
+		c.JSON(http.StatusOK, versionResponse{Version: version, Service: "ub-mager-api"})
 	})
 
 	// API v1 routes
@@ -203,46 +237,46 @@ func main() {
 
 			// Admin routes
 			admin := protected.Group("/admin")
-			admin.Use(middleware.RoleRequired("ADMIN"))
+			admin.Use(middleware.RoleRequired(string(model.RoleAdmin)))
 			{
 				admin.GET("/dashboard", adminHandler.GetDashboardStats)
 				admin.GET("/drivers", adminHandler.ListDrivers)
 				admin.GET("/drivers/nearby", driverHandler.GetNearbyDrivers)
-			admin.GET("/drivers/:id", adminHandler.GetDriverDetail)
-			admin.GET("/drivers/:id/rides", adminHandler.GetDriverRides)
-			admin.PUT("/drivers/:id/verify", adminHandler.VerifyDriver)
-			admin.PUT("/drivers/:id/status", adminHandler.ToggleDriverOnline)
-			admin.GET("/activity", adminHandler.GetRecentActivity)
-			admin.PUT("/rides/bulk-cancel", adminHandler.BulkCancelStuckRides)
-			admin.GET("/rides", adminHandler.ListRides)
-			admin.GET("/rides/counts", adminHandler.GetRideCountsByStatus)
+				admin.GET("/drivers/:id", adminHandler.GetDriverDetail)
+				admin.GET("/drivers/:id/rides", adminHandler.GetDriverRides)
+				admin.PUT("/drivers/:id/verify", adminHandler.VerifyDriver)
+				admin.PUT("/drivers/:id/status", adminHandler.ToggleDriverOnline)
+				admin.GET("/activity", adminHandler.GetRecentActivity)
+				admin.PUT("/rides/bulk-cancel", adminHandler.BulkCancelStuckRides)
+				admin.GET("/rides", adminHandler.ListRides)
+				admin.GET("/rides/counts", adminHandler.GetRideCountsByStatus)
 				admin.GET("/rides/:id", adminHandler.GetRideDetail)
 				admin.PUT("/rides/:id/cancel", adminHandler.CancelRide)
 			}
 
 			// Analytics routes (accessible by admin)
 			analytics := protected.Group("/analytics")
-			analytics.Use(middleware.RoleRequired("ADMIN"))
+			analytics.Use(middleware.RoleRequired(string(model.RoleAdmin)))
 			{
 				analytics.GET("/revenue", adminHandler.GetRevenueStats)
 				analytics.GET("/revenue/daily", adminHandler.GetDailyRevenue)
 				analytics.GET("/rides", adminHandler.GetRideStats)
 				analytics.GET("/drivers/leaderboard", adminHandler.GetDriverLeaderboard)
-			analytics.GET("/peak-hours", adminHandler.GetPeakHours)
+				analytics.GET("/peak-hours", adminHandler.GetPeakHours)
 			}
 		}
 	}
 
 	// WebSocket endpoint
-	r.GET("/ws", ws.HandleWebSocket(wsHub, jwtService))
+	r.GET("/ws", ws.HandleWebSocket(wsHub, jwtService, cfg.CORSOrigins))
 
 	// Start server
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%s", cfg.ServerPort),
 		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  time.Duration(cfg.ReadTimeoutSec) * time.Second,
+		WriteTimeout: time.Duration(cfg.WriteTimeoutSec) * time.Second,
+		IdleTimeout:  time.Duration(cfg.IdleTimeoutSec) * time.Second,
 	}
 
 	go func() {
@@ -264,6 +298,17 @@ func main() {
 
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatal().Err(err).Msg("server forced to shutdown")
+	}
+
+	if err := rdb.Close(); err != nil {
+		log.Warn().Err(err).Msg("redis close error")
+	}
+
+	sqlDB, err := db.DB()
+	if err == nil {
+		if err := sqlDB.Close(); err != nil {
+			log.Warn().Err(err).Msg("postgres close error")
+		}
 	}
 
 	log.Info().Msg("server stopped")

@@ -6,16 +6,16 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/wardayadev/ub-mager-api/internal/handler"
 )
 
-// RateLimiter implements a simple in-memory sliding window rate limiter.
-// For production with multiple instances, use Redis-based rate limiting.
 type RateLimiter struct {
 	requests map[string][]time.Time
 	mu       sync.RWMutex
 	limit    int
 	window   time.Duration
+	stop     chan struct{}
 }
 
 func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
@@ -23,17 +23,27 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 		requests: make(map[string][]time.Time),
 		limit:    limit,
 		window:   window,
+		stop:     make(chan struct{}),
 	}
 
-	// Cleanup stale entries every minute
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute)
-		for range ticker.C {
-			rl.cleanup()
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				rl.cleanup()
+			case <-rl.stop:
+				return
+			}
 		}
 	}()
 
 	return rl
+}
+
+func (rl *RateLimiter) Close() {
+	close(rl.stop)
 }
 
 func (rl *RateLimiter) cleanup() {
@@ -63,7 +73,6 @@ func (rl *RateLimiter) isAllowed(key string) bool {
 	now := time.Now()
 	windowStart := now.Add(-rl.window)
 
-	// Filter to only requests within the window
 	var valid []time.Time
 	for _, t := range rl.requests[key] {
 		if t.After(windowStart) {
@@ -80,9 +89,6 @@ func (rl *RateLimiter) isAllowed(key string) bool {
 	return true
 }
 
-// RateLimit creates a rate limiting middleware.
-// limit: max requests per window. window: time window duration.
-// Uses client IP as the rate limit key.
 func RateLimit(limit int, window time.Duration) gin.HandlerFunc {
 	limiter := NewRateLimiter(limit, window)
 
@@ -98,15 +104,15 @@ func RateLimit(limit int, window time.Duration) gin.HandlerFunc {
 	}
 }
 
-// RateLimitByUser creates a rate limiter keyed by authenticated user ID.
-// Falls back to IP if user is not authenticated.
 func RateLimitByUser(limit int, window time.Duration) gin.HandlerFunc {
 	limiter := NewRateLimiter(limit, window)
 
 	return func(c *gin.Context) {
 		key := c.ClientIP()
 		if userID, exists := c.Get("user_id"); exists {
-			key = "user:" + userID.(interface{ String() string }).String()
+			if id, ok := userID.(uuid.UUID); ok {
+				key = "user:" + id.String()
+			}
 		}
 
 		if !limiter.isAllowed(key) {

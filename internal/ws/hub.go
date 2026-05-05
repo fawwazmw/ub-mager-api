@@ -8,12 +8,10 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// MessageHandler processes incoming WebSocket messages
 type MessageHandler interface {
 	OnDriverLocation(client *Client, payload LocationPayload)
 }
 
-// Hub maintains the set of active clients and broadcasts messages
 type Hub struct {
 	clients        map[string]*Client
 	register       chan *Client
@@ -24,7 +22,6 @@ type Hub struct {
 	mu             sync.RWMutex
 }
 
-// NewHub creates a new Hub instance
 func NewHub() *Hub {
 	return &Hub{
 		clients:    make(map[string]*Client),
@@ -35,12 +32,10 @@ func NewHub() *Hub {
 	}
 }
 
-// SetMessageHandler sets the handler for incoming messages
 func (h *Hub) SetMessageHandler(handler MessageHandler) {
 	h.messageHandler = handler
 }
 
-// Run starts the hub's main event loop
 func (h *Hub) Run() {
 	for {
 		select {
@@ -91,7 +86,6 @@ func (h *Hub) Run() {
 	}
 }
 
-// SendToUser delivers a message to a specific user
 func (h *Hub) SendToUser(userID string, msg *Message) bool {
 	h.mu.RLock()
 	client, exists := h.clients[userID]
@@ -116,7 +110,6 @@ func (h *Hub) SendToUser(userID string, msg *Message) bool {
 	}
 }
 
-// WaitForResponse sends a message and blocks until a correlated response arrives
 func (h *Hub) WaitForResponse(userID string, msg *Message, timeout time.Duration) (*Message, error) {
 	correlationID := msg.CorrelationID
 	ch := make(chan *Message, 1)
@@ -143,7 +136,6 @@ func (h *Hub) WaitForResponse(userID string, msg *Message, timeout time.Duration
 	}
 }
 
-// ResolveWaiter delivers a response to a waiting goroutine
 func (h *Hub) ResolveWaiter(correlationID string, msg *Message) bool {
 	h.mu.RLock()
 	ch, exists := h.waiters[correlationID]
@@ -161,7 +153,6 @@ func (h *Hub) ResolveWaiter(correlationID string, msg *Message) bool {
 	}
 }
 
-// IsConnected checks if a user has an active WebSocket connection
 func (h *Hub) IsConnected(userID string) bool {
 	h.mu.RLock()
 	_, exists := h.clients[userID]
@@ -169,21 +160,18 @@ func (h *Hub) IsConnected(userID string) bool {
 	return exists
 }
 
-// GetOnlineCount returns the number of connected clients
 func (h *Hub) GetOnlineCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return len(h.clients)
 }
 
-// GetClient returns a client by user ID
 func (h *Hub) GetClient(userID string) *Client {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.clients[userID]
 }
 
-// Errors
 var (
 	ErrUserNotConnected = &WsError{Code: "USER_NOT_CONNECTED", Message: "User is not connected"}
 	ErrTimeout          = &WsError{Code: "TIMEOUT", Message: "Request timed out"}

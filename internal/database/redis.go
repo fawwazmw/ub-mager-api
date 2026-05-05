@@ -13,6 +13,7 @@ func NewRedis(cfg *config.Config) (*redis.Client, error) {
 		Addr:     fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
 		Password: cfg.RedisPassword,
 		DB:       cfg.RedisDB,
+		PoolSize: cfg.RedisPoolSize,
 	})
 
 	if err := client.Ping(context.Background()).Err(); err != nil {

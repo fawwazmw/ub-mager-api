@@ -22,7 +22,6 @@ func AuthRequired(jwtService *jwtpkg.JWTService) gin.HandlerFunc {
 		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
 			tokenString = parts[1]
 		} else {
-			// Accept raw token without "Bearer" prefix as fallback
 			tokenString = authHeader
 		}
 
@@ -51,7 +50,12 @@ func RoleRequired(roles ...string) gin.HandlerFunc {
 			return
 		}
 
-		role := userRole.(string)
+		role, ok := userRole.(string)
+		if !ok {
+			handler.Error(c, http.StatusForbidden, "FORBIDDEN", "Access denied")
+			return
+		}
+
 		for _, allowed := range roles {
 			if role == allowed {
 				c.Next()
@@ -60,6 +64,5 @@ func RoleRequired(roles ...string) gin.HandlerFunc {
 		}
 
 		handler.Error(c, http.StatusForbidden, "FORBIDDEN", "Insufficient permissions")
-		c.Abort()
 	}
 }

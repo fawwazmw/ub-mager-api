@@ -4,7 +4,7 @@ import (
 	"errors"
 	"math"
 	"net/http"
-	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -20,10 +20,42 @@ func NewRideHandler(rideService *service.RideService) *RideHandler {
 	return &RideHandler{rideService: rideService}
 }
 
+type EstimateResponse struct {
+	Pickup        service.LocationInput  `json:"pickup"`
+	Dropoff       service.LocationInput  `json:"dropoff"`
+	VehicleType   string                 `json:"vehicle_type"`
+	DistanceKm    float64                `json:"distance_km"`
+	DurationMin   int                    `json:"duration_min"`
+	FareBreakdown *service.FareBreakdown `json:"fare_breakdown"`
+}
+
+type LocationDetail struct {
+	Lat     float64 `json:"lat"`
+	Lng     float64 `json:"lng"`
+	Address string  `json:"address"`
+}
+
+type RequestRideResponse struct {
+	RideID        uuid.UUID          `json:"ride_id"`
+	Status        model.RideStatus   `json:"status"`
+	Pickup        LocationDetail     `json:"pickup"`
+	Dropoff       LocationDetail     `json:"dropoff"`
+	VehicleType   model.VehicleType  `json:"vehicle_type"`
+	PaymentMethod model.PaymentMethod `json:"payment_method"`
+	FareEstimate  float64            `json:"fare_estimate"`
+	CreatedAt     time.Time          `json:"created_at"`
+	Message       string             `json:"message"`
+}
+
 func (h *RideHandler) Estimate(c *gin.Context) {
 	var input service.EstimateInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		Error(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+
+	if !ValidCoordinate(input.Pickup.Lat, input.Pickup.Lng) || !ValidCoordinate(input.Dropoff.Lat, input.Dropoff.Lng) {
+		Error(c, http.StatusBadRequest, "INVALID_COORDINATES", "Coordinates must be valid lat/lng values")
 		return
 	}
 
@@ -33,18 +65,18 @@ func (h *RideHandler) Estimate(c *gin.Context) {
 		return
 	}
 
-	Success(c, http.StatusOK, gin.H{
-		"pickup":       input.Pickup,
-		"dropoff":      input.Dropoff,
-		"vehicle_type": input.VehicleType,
-		"distance_km":  math.Round(distanceM/100) / 10,
-		"duration_min": durationS / 60,
-		"fare_breakdown": breakdown,
+	Success(c, http.StatusOK, EstimateResponse{
+		Pickup:        input.Pickup,
+		Dropoff:       input.Dropoff,
+		VehicleType:   input.VehicleType,
+		DistanceKm:    math.Round(distanceM/100) / 10,
+		DurationMin:   durationS / 60,
+		FareBreakdown: breakdown,
 	})
 }
 
 func (h *RideHandler) RequestRide(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := GetUserID(c)
 
 	var input service.RequestRideInput
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -52,7 +84,12 @@ func (h *RideHandler) RequestRide(c *gin.Context) {
 		return
 	}
 
-	ride, err := h.rideService.RequestRide(c.Request.Context(), userID.(uuid.UUID), input)
+	if !ValidCoordinate(input.Pickup.Lat, input.Pickup.Lng) || !ValidCoordinate(input.Dropoff.Lat, input.Dropoff.Lng) {
+		Error(c, http.StatusBadRequest, "INVALID_COORDINATES", "Coordinates must be valid lat/lng values")
+		return
+	}
+
+	ride, err := h.rideService.RequestRide(c.Request.Context(), userID, input)
 	if err != nil {
 		if errors.Is(err, service.ErrActiveRideExists) {
 			Error(c, http.StatusConflict, "ACTIVE_RIDE_EXISTS", "You already have an active ride")
@@ -62,16 +99,16 @@ func (h *RideHandler) RequestRide(c *gin.Context) {
 		return
 	}
 
-	Success(c, http.StatusCreated, gin.H{
-		"ride_id":        ride.ID,
-		"status":         ride.Status,
-		"pickup":         gin.H{"lat": ride.PickupLat, "lng": ride.PickupLng, "address": ride.PickupAddress},
-		"dropoff":        gin.H{"lat": ride.DropoffLat, "lng": ride.DropoffLng, "address": ride.DropoffAddress},
-		"vehicle_type":   ride.VehicleType,
-		"payment_method": ride.PaymentMethod,
-		"fare_estimate":  ride.TotalFare,
-		"created_at":     ride.CreatedAt,
-		"message":        "Searching for nearby drivers...",
+	Success(c, http.StatusCreated, RequestRideResponse{
+		RideID:        ride.ID,
+		Status:        ride.Status,
+		Pickup:        LocationDetail{Lat: ride.PickupLat, Lng: ride.PickupLng, Address: ride.PickupAddress},
+		Dropoff:       LocationDetail{Lat: ride.DropoffLat, Lng: ride.DropoffLng, Address: ride.DropoffAddress},
+		VehicleType:   ride.VehicleType,
+		PaymentMethod: ride.PaymentMethod,
+		FareEstimate:  ride.TotalFare,
+		CreatedAt:     ride.CreatedAt,
+		Message:       "Searching for nearby drivers...",
 	})
 }
 
@@ -96,9 +133,9 @@ func (h *RideHandler) GetRide(c *gin.Context) {
 }
 
 func (h *RideHandler) GetActiveRide(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := GetUserID(c)
 
-	ride, err := h.rideService.GetActiveRide(c.Request.Context(), userID.(uuid.UUID))
+	ride, err := h.rideService.GetActiveRide(c.Request.Context(), userID)
 	if err != nil {
 		if errors.Is(err, service.ErrRideNotFound) {
 			Error(c, http.StatusNotFound, "NO_ACTIVE_RIDE", "No active ride found")
@@ -112,7 +149,7 @@ func (h *RideHandler) GetActiveRide(c *gin.Context) {
 }
 
 func (h *RideHandler) CancelRide(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := GetUserID(c)
 	rideID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		Error(c, http.StatusBadRequest, "INVALID_ID", "Invalid ride ID")
@@ -124,7 +161,7 @@ func (h *RideHandler) CancelRide(c *gin.Context) {
 	}
 	c.ShouldBindJSON(&input)
 
-	err = h.rideService.CancelRide(c.Request.Context(), rideID, userID.(uuid.UUID), input.Reason)
+	err = h.rideService.CancelRide(c.Request.Context(), rideID, userID, input.Reason)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrRideNotFound):
@@ -139,11 +176,11 @@ func (h *RideHandler) CancelRide(c *gin.Context) {
 		return
 	}
 
-	Success(c, http.StatusOK, gin.H{"message": "Ride cancelled successfully"})
+	SuccessMessage(c, "Ride cancelled successfully")
 }
 
 func (h *RideHandler) RateRide(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := GetUserID(c)
 	rideID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		Error(c, http.StatusBadRequest, "INVALID_ID", "Invalid ride ID")
@@ -156,68 +193,69 @@ func (h *RideHandler) RateRide(c *gin.Context) {
 		return
 	}
 
-	err = h.rideService.RateRide(c.Request.Context(), rideID, userID.(uuid.UUID), input)
+	err = h.rideService.RateRide(c.Request.Context(), rideID, userID, input)
 	if err != nil {
 		switch {
+		case errors.Is(err, service.ErrRideNotFound):
+			Error(c, http.StatusNotFound, "RIDE_NOT_FOUND", "Ride not found")
 		case errors.Is(err, service.ErrAlreadyRated):
 			Error(c, http.StatusConflict, "ALREADY_RATED", "You have already rated this ride")
 		case errors.Is(err, service.ErrRideNotCompleted):
 			Error(c, http.StatusBadRequest, "NOT_COMPLETED", "Ride must be completed before rating")
+		case errors.Is(err, service.ErrNoDriverToRate):
+			Error(c, http.StatusBadRequest, "NO_DRIVER", "No driver assigned to rate")
 		default:
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to rate ride")
 		}
 		return
 	}
 
-	Success(c, http.StatusCreated, gin.H{"message": "Rating submitted"})
+	SuccessMessage(c, "Rating submitted")
 }
 
 func (h *RideHandler) GetHistory(c *gin.Context) {
-	userID, _ := c.Get("user_id")
-	userRole, _ := c.Get("user_role")
+	userID, _ := GetUserID(c)
+	userRole := GetUserRole(c)
 
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+	page, perPage := ParsePagination(c)
 
-	rides, total, err := h.rideService.GetHistory(c.Request.Context(), userID.(uuid.UUID), userRole.(string), page, perPage)
+	rides, total, err := h.rideService.GetHistory(c.Request.Context(), userID, userRole, page, perPage)
 	if err != nil {
 		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get history")
 		return
 	}
 
-	totalPages := int(math.Ceil(float64(total) / float64(perPage)))
-
-	SuccessWithMeta(c, http.StatusOK, rides, &Meta{
-		Page:       page,
-		PerPage:    perPage,
-		Total:      total,
-		TotalPages: totalPages,
-	})
+	PaginatedSuccess(c, rides, page, perPage, total)
 }
 
-// Driver-side ride actions
-
 func (h *RideHandler) AcceptRide(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := GetUserID(c)
 	rideID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		Error(c, http.StatusBadRequest, "INVALID_ID", "Invalid ride ID")
 		return
 	}
 
-	// We need the driver profile ID, not user ID
-	// For now, pass userID — the service will need to look up the driver profile
-	err = h.rideService.AcceptRide(c.Request.Context(), rideID, userID.(uuid.UUID))
+	err = h.rideService.AcceptRide(c.Request.Context(), rideID, userID)
 	if err != nil {
-		Error(c, http.StatusBadRequest, "ACCEPT_FAILED", err.Error())
+		switch {
+		case errors.Is(err, service.ErrRideNotFound):
+			Error(c, http.StatusNotFound, "RIDE_NOT_FOUND", "Ride not found")
+		case errors.Is(err, service.ErrRideNoLongerAvailable):
+			Error(c, http.StatusConflict, "RIDE_UNAVAILABLE", "Ride is no longer available")
+		case errors.Is(err, service.ErrDriverNotFound):
+			Error(c, http.StatusNotFound, "DRIVER_NOT_FOUND", "Driver profile not found")
+		default:
+			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to accept ride")
+		}
 		return
 	}
 
-	Success(c, http.StatusOK, gin.H{"message": "Ride accepted"})
+	SuccessMessage(c, "Ride accepted")
 }
 
 func (h *RideHandler) DriverUpdateStatus(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := GetUserID(c)
 	rideID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		Error(c, http.StatusBadRequest, "INVALID_ID", "Invalid ride ID")
@@ -233,16 +271,20 @@ func (h *RideHandler) DriverUpdateStatus(c *gin.Context) {
 	}
 
 	newStatus := model.RideStatus(input.Status)
-	err = h.rideService.UpdateRideStatus(c.Request.Context(), rideID, userID.(uuid.UUID), newStatus)
+	err = h.rideService.UpdateRideStatus(c.Request.Context(), rideID, userID, newStatus)
 	if err != nil {
 		switch {
+		case errors.Is(err, service.ErrRideNotFound):
+			Error(c, http.StatusNotFound, "RIDE_NOT_FOUND", "Ride not found")
 		case errors.Is(err, service.ErrUnauthorized):
 			Error(c, http.StatusForbidden, "FORBIDDEN", "Not authorized")
+		case errors.Is(err, service.ErrInvalidTransition):
+			Error(c, http.StatusBadRequest, "INVALID_TRANSITION", "Invalid status transition")
 		default:
-			Error(c, http.StatusBadRequest, "STATUS_UPDATE_FAILED", err.Error())
+			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update ride status")
 		}
 		return
 	}
 
-	Success(c, http.StatusOK, gin.H{"status": input.Status, "message": "Status updated"})
+	SuccessMessage(c, "Status updated to "+input.Status)
 }

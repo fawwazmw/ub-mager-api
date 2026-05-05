@@ -16,10 +16,9 @@ const (
 	sendBufferSize = 256
 )
 
-// Client represents a single WebSocket connection
 type Client struct {
 	UserID       string
-	Role         string // DRIVER, PASSENGER, ADMIN
+	Role         string
 	Conn         *websocket.Conn
 	Send         chan []byte
 	Hub          *Hub
@@ -27,7 +26,6 @@ type Client struct {
 	LastPing     time.Time
 }
 
-// ReadPump pumps messages from the WebSocket connection to the hub
 func (c *Client) ReadPump() {
 	defer func() {
 		c.Hub.unregister <- c
@@ -62,7 +60,6 @@ func (c *Client) ReadPump() {
 	}
 }
 
-// WritePump pumps messages from the hub to the WebSocket connection
 func (c *Client) WritePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {

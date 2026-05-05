@@ -3,9 +3,11 @@ package cache
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+	"github.com/wardayadev/ub-mager-api/internal/model"
 )
 
 const driverGeoKey = "drivers:locations"
@@ -18,7 +20,6 @@ func NewDriverGeoCache(rdb *redis.Client) *DriverGeoCache {
 	return &DriverGeoCache{rdb: rdb}
 }
 
-// UpdateLocation adds/updates a driver's position in the Redis GeoSet
 func (c *DriverGeoCache) UpdateLocation(ctx context.Context, driverID uuid.UUID, lat, lng float64) error {
 	return c.rdb.GeoAdd(ctx, driverGeoKey, &redis.GeoLocation{
 		Name:      driverID.String(),
@@ -27,12 +28,10 @@ func (c *DriverGeoCache) UpdateLocation(ctx context.Context, driverID uuid.UUID,
 	}).Err()
 }
 
-// RemoveDriver removes a driver from the GeoSet (when going offline)
 func (c *DriverGeoCache) RemoveDriver(ctx context.Context, driverID uuid.UUID) error {
 	return c.rdb.ZRem(ctx, driverGeoKey, driverID.String()).Err()
 }
 
-// FindNearby returns driver IDs within radius (km) of a point
 func (c *DriverGeoCache) FindNearby(ctx context.Context, lat, lng, radiusKm float64, count int) ([]string, error) {
 	return c.rdb.GeoSearch(ctx, driverGeoKey, &redis.GeoSearchQuery{
 		Longitude:  lng,
@@ -44,7 +43,6 @@ func (c *DriverGeoCache) FindNearby(ctx context.Context, lat, lng, radiusKm floa
 	}).Result()
 }
 
-// FindNearbyWithDist returns driver IDs with distances
 func (c *DriverGeoCache) FindNearbyWithDist(ctx context.Context, lat, lng, radiusKm float64, count int) ([]redis.GeoLocation, error) {
 	results, err := c.rdb.GeoSearchLocation(ctx, driverGeoKey, &redis.GeoSearchLocationQuery{
 		GeoSearchQuery: redis.GeoSearchQuery{
@@ -64,14 +62,17 @@ func (c *DriverGeoCache) FindNearbyWithDist(ctx context.Context, lat, lng, radiu
 	return results, nil
 }
 
-// SetDriverStatus stores driver online status in a hash
-func (c *DriverGeoCache) SetDriverStatus(ctx context.Context, driverID uuid.UUID, status string) error {
+func (c *DriverGeoCache) SetDriverStatus(ctx context.Context, driverID uuid.UUID, status model.DriverStatus) error {
 	key := fmt.Sprintf("driver:%s:status", driverID.String())
-	return c.rdb.Set(ctx, key, status, 0).Err()
+	ttl := 24 * time.Hour
+	if status == model.DriverStatusOffline {
+		ttl = 1 * time.Hour
+	}
+	return c.rdb.Set(ctx, key, string(status), ttl).Err()
 }
 
-// GetDriverStatus gets driver status
-func (c *DriverGeoCache) GetDriverStatus(ctx context.Context, driverID uuid.UUID) (string, error) {
+func (c *DriverGeoCache) GetDriverStatus(ctx context.Context, driverID uuid.UUID) (model.DriverStatus, error) {
 	key := fmt.Sprintf("driver:%s:status", driverID.String())
-	return c.rdb.Get(ctx, key).Result()
+	val, err := c.rdb.Get(ctx, key).Result()
+	return model.DriverStatus(val), err
 }

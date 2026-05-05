@@ -15,6 +15,13 @@ const (
 	VehicleCarXL      VehicleType = "CAR_XL"
 )
 
+type DriverStatus string
+
+const (
+	DriverStatusOnline  DriverStatus = "ONLINE_AVAILABLE"
+	DriverStatusOffline DriverStatus = "OFFLINE"
+)
+
 type DriverProfile struct {
 	ID             uuid.UUID      `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()" json:"id"`
 	UserID         uuid.UUID      `gorm:"type:uuid;uniqueIndex;not null" json:"user_id"`

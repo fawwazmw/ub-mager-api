@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/wardayadev/ub-mager-api/internal/service"
 )
 
@@ -18,9 +17,9 @@ func NewUserHandler(authService *service.AuthService) *UserHandler {
 }
 
 func (h *UserHandler) GetProfile(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := GetUserID(c)
 
-	user, err := h.authService.GetUserByID(c.Request.Context(), userID.(uuid.UUID))
+	user, err := h.authService.GetUserByID(c.Request.Context(), userID)
 	if err != nil {
 		Error(c, http.StatusNotFound, "USER_NOT_FOUND", "User not found")
 		return
@@ -30,7 +29,7 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 }
 
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := GetUserID(c)
 
 	var input service.UpdateProfileInput
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -38,7 +37,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	user, err := h.authService.UpdateProfile(c.Request.Context(), userID.(uuid.UUID), input)
+	user, err := h.authService.UpdateProfile(c.Request.Context(), userID, input)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrEmailAlreadyExists):
@@ -55,7 +54,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 }
 
 func (h *UserHandler) ChangePassword(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := GetUserID(c)
 
 	var input service.ChangePasswordInput
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -63,7 +62,7 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	err := h.authService.ChangePassword(c.Request.Context(), userID.(uuid.UUID), input)
+	err := h.authService.ChangePassword(c.Request.Context(), userID, input)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidCredentials) {
 			Error(c, http.StatusUnauthorized, "INVALID_CREDENTIALS", "Current password is incorrect")
@@ -73,5 +72,5 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	Success(c, http.StatusOK, gin.H{"message": "Password changed successfully"})
+	SuccessMessage(c, "Password changed successfully")
 }

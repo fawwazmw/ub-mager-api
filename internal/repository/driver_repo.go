@@ -46,7 +46,7 @@ func (r *DriverRepository) UpdateLocation(ctx context.Context, driverID uuid.UUI
 	return r.db.WithContext(ctx).
 		Model(&model.DriverProfile{}).
 		Where("id = ?", driverID).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"latitude":        lat,
 			"longitude":       lng,
 			"heading":         heading,
@@ -56,7 +56,7 @@ func (r *DriverRepository) UpdateLocation(ctx context.Context, driverID uuid.UUI
 }
 
 func (r *DriverRepository) SetOnlineStatus(ctx context.Context, driverID uuid.UUID, isOnline bool) error {
-	updates := map[string]interface{}{
+	updates := map[string]any{
 		"is_online": isOnline,
 	}
 	if !isOnline {
@@ -71,7 +71,6 @@ func (r *DriverRepository) SetOnlineStatus(ctx context.Context, driverID uuid.UU
 func (r *DriverRepository) FindNearbyDrivers(ctx context.Context, lat, lng, radiusKm float64, vehicleType model.VehicleType, limit int) ([]model.DriverProfile, error) {
 	var drivers []model.DriverProfile
 
-	// Haversine formula in SQL for distance calculation
 	query := r.db.WithContext(ctx).
 		Where("is_online = ? AND is_available = ? AND is_verified = ?", true, true, true).
 		Where("latitude IS NOT NULL AND longitude IS NOT NULL")
@@ -80,7 +79,6 @@ func (r *DriverRepository) FindNearbyDrivers(ctx context.Context, lat, lng, radi
 		query = query.Where("vehicle_type = ?", vehicleType)
 	}
 
-	// Haversine distance filter (approximate bounding box first, then exact)
 	query = query.Where(`
 		(6371 * acos(
 			cos(radians(?)) * cos(radians(latitude)) *

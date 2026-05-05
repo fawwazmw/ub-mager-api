@@ -1,23 +1,26 @@
 package handler
 
 import (
-	"math"
+	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/wardayadev/ub-mager-api/internal/repository"
 )
 
 type AdminHandler struct {
-	analyticsRepo *repository.AnalyticsRepository
+	analyticsRepo AnalyticsRepo
 }
 
-func NewAdminHandler(analyticsRepo *repository.AnalyticsRepository) *AdminHandler {
+func NewAdminHandler(analyticsRepo AnalyticsRepo) *AdminHandler {
 	return &AdminHandler{analyticsRepo: analyticsRepo}
 }
 
-// GetDashboardStats returns overview stats for the admin dashboard
+type BulkCancelResponse struct {
+	Cancelled int64  `json:"cancelled"`
+	Message   string `json:"message"`
+}
+
 func (h *AdminHandler) GetDashboardStats(c *gin.Context) {
 	stats, err := h.analyticsRepo.GetDashboardStats(c.Request.Context())
 	if err != nil {
@@ -27,7 +30,6 @@ func (h *AdminHandler) GetDashboardStats(c *gin.Context) {
 	Success(c, http.StatusOK, stats)
 }
 
-// GetRevenueStats returns revenue analytics
 func (h *AdminHandler) GetRevenueStats(c *gin.Context) {
 	period := c.DefaultQuery("period", "today")
 
@@ -39,9 +41,8 @@ func (h *AdminHandler) GetRevenueStats(c *gin.Context) {
 	Success(c, http.StatusOK, stats)
 }
 
-// GetDailyRevenue returns daily revenue breakdown for charts
 func (h *AdminHandler) GetDailyRevenue(c *gin.Context) {
-	days, _ := strconv.Atoi(c.DefaultQuery("days", "7"))
+	days := ParseIntQuery(c, "days", 7, 1, 90)
 
 	data, err := h.analyticsRepo.GetDailyRevenue(c.Request.Context(), days)
 	if err != nil {
@@ -51,7 +52,6 @@ func (h *AdminHandler) GetDailyRevenue(c *gin.Context) {
 	Success(c, http.StatusOK, data)
 }
 
-// GetRideStats returns ride analytics
 func (h *AdminHandler) GetRideStats(c *gin.Context) {
 	period := c.DefaultQuery("period", "today")
 
@@ -63,19 +63,10 @@ func (h *AdminHandler) GetRideStats(c *gin.Context) {
 	Success(c, http.StatusOK, stats)
 }
 
-// ListDrivers returns paginated driver list for admin management
 func (h *AdminHandler) ListDrivers(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+	page, perPage := ParsePagination(c)
 	status := c.DefaultQuery("status", "")
 	search := c.DefaultQuery("search", "")
-
-	if page < 1 {
-		page = 1
-	}
-	if perPage < 1 || perPage > 100 {
-		perPage = 20
-	}
 
 	drivers, total, err := h.analyticsRepo.ListDrivers(c.Request.Context(), page, perPage, status, search)
 	if err != nil {
@@ -83,17 +74,9 @@ func (h *AdminHandler) ListDrivers(c *gin.Context) {
 		return
 	}
 
-	totalPages := int(math.Ceil(float64(total) / float64(perPage)))
-
-	SuccessWithMeta(c, http.StatusOK, drivers, &Meta{
-		Page:       page,
-		PerPage:    perPage,
-		Total:      total,
-		TotalPages: totalPages,
-	})
+	PaginatedSuccess(c, drivers, page, perPage, total)
 }
 
-// VerifyDriver marks a driver as verified
 func (h *AdminHandler) VerifyDriver(c *gin.Context) {
 	driverID := c.Param("id")
 	if driverID == "" {
@@ -107,10 +90,9 @@ func (h *AdminHandler) VerifyDriver(c *gin.Context) {
 		return
 	}
 
-	Success(c, http.StatusOK, gin.H{"message": "Driver verified successfully"})
+	SuccessMessage(c, "Driver verified successfully")
 }
 
-// GetRideCountsByStatus returns ride counts grouped by status
 func (h *AdminHandler) GetRideCountsByStatus(c *gin.Context) {
 	counts, err := h.analyticsRepo.GetRideCountsByStatus(c.Request.Context())
 	if err != nil {
@@ -120,7 +102,6 @@ func (h *AdminHandler) GetRideCountsByStatus(c *gin.Context) {
 	Success(c, http.StatusOK, counts)
 }
 
-// CancelRide allows admin to cancel any ride
 func (h *AdminHandler) CancelRide(c *gin.Context) {
 	rideID := c.Param("id")
 	var input struct {
@@ -135,14 +116,17 @@ func (h *AdminHandler) CancelRide(c *gin.Context) {
 
 	err := h.analyticsRepo.AdminCancelRide(c.Request.Context(), rideID, reason)
 	if err != nil {
-		Error(c, http.StatusBadRequest, "CANCEL_FAILED", err.Error())
+		if errors.Is(err, repository.ErrRideNotFoundOrTerminal) {
+			Error(c, http.StatusNotFound, "RIDE_NOT_FOUND", "Ride not found or already completed/cancelled")
+		} else {
+			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to cancel ride")
+		}
 		return
 	}
 
-	Success(c, http.StatusOK, gin.H{"message": "Ride cancelled"})
+	SuccessMessage(c, "Ride cancelled")
 }
 
-// GetDriverDetail returns full driver profile for admin
 func (h *AdminHandler) GetDriverDetail(c *gin.Context) {
 	driverID := c.Param("id")
 	detail, err := h.analyticsRepo.GetDriverDetail(c.Request.Context(), driverID)
@@ -153,7 +137,6 @@ func (h *AdminHandler) GetDriverDetail(c *gin.Context) {
 	Success(c, http.StatusOK, detail)
 }
 
-// ToggleDriverOnline forces a driver online/offline from admin
 func (h *AdminHandler) ToggleDriverOnline(c *gin.Context) {
 	driverID := c.Param("id")
 	var input struct {
@@ -174,12 +157,11 @@ func (h *AdminHandler) ToggleDriverOnline(c *gin.Context) {
 	if input.IsOnline {
 		status = "online"
 	}
-	Success(c, http.StatusOK, gin.H{"message": "Driver set to " + status})
+	SuccessMessage(c, "Driver set to "+status)
 }
 
-// GetDriverLeaderboard returns top drivers by revenue
 func (h *AdminHandler) GetDriverLeaderboard(c *gin.Context) {
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	limit := ParseIntQuery(c, "limit", 10, 1, 100)
 
 	drivers, err := h.analyticsRepo.GetDriverLeaderboard(c.Request.Context(), limit)
 	if err != nil {
@@ -189,7 +171,6 @@ func (h *AdminHandler) GetDriverLeaderboard(c *gin.Context) {
 	Success(c, http.StatusOK, drivers)
 }
 
-// GetRideDetail returns full ride details for admin
 func (h *AdminHandler) GetRideDetail(c *gin.Context) {
 	rideID := c.Param("id")
 	if rideID == "" {
@@ -210,9 +191,8 @@ func (h *AdminHandler) GetRideDetail(c *gin.Context) {
 	Success(c, http.StatusOK, ride)
 }
 
-// GetPeakHours returns ride distribution by hour of day
 func (h *AdminHandler) GetPeakHours(c *gin.Context) {
-	days, _ := strconv.Atoi(c.DefaultQuery("days", "7"))
+	days := ParseIntQuery(c, "days", 7, 1, 90)
 	data, err := h.analyticsRepo.GetPeakHours(c.Request.Context(), days)
 	if err != nil {
 		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get peak hours")
@@ -221,23 +201,21 @@ func (h *AdminHandler) GetPeakHours(c *gin.Context) {
 	Success(c, http.StatusOK, data)
 }
 
-// BulkCancelStuckRides cancels all rides stuck in SEARCHING for 30+ minutes
 func (h *AdminHandler) BulkCancelStuckRides(c *gin.Context) {
 	affected, err := h.analyticsRepo.BulkCancelStuckRides(c.Request.Context(), "Auto-cancelled: no driver found within 30 minutes")
 	if err != nil {
 		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to cancel stuck rides")
 		return
 	}
-	Success(c, http.StatusOK, map[string]interface{}{
-		"cancelled": affected,
-		"message":   "Stuck rides cancelled",
+	Success(c, http.StatusOK, BulkCancelResponse{
+		Cancelled: affected,
+		Message:   "Stuck rides cancelled",
 	})
 }
 
-// GetDriverRides returns recent rides for a specific driver
 func (h *AdminHandler) GetDriverRides(c *gin.Context) {
 	driverID := c.Param("id")
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "5"))
+	limit := ParseIntQuery(c, "limit", 5, 1, 50)
 
 	rides, err := h.analyticsRepo.GetDriverRides(c.Request.Context(), driverID, limit)
 	if err != nil {
@@ -247,9 +225,8 @@ func (h *AdminHandler) GetDriverRides(c *gin.Context) {
 	Success(c, http.StatusOK, rides)
 }
 
-// GetRecentActivity returns recent platform activity for the admin feed
 func (h *AdminHandler) GetRecentActivity(c *gin.Context) {
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	limit := ParseIntQuery(c, "limit", 20, 1, 100)
 
 	activities, err := h.analyticsRepo.GetRecentActivity(c.Request.Context(), limit)
 	if err != nil {
@@ -259,19 +236,10 @@ func (h *AdminHandler) GetRecentActivity(c *gin.Context) {
 	Success(c, http.StatusOK, activities)
 }
 
-// ListRides returns paginated ride list for admin (ALL rides, not user-scoped)
 func (h *AdminHandler) ListRides(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+	page, perPage := ParsePagination(c)
 	status := c.DefaultQuery("status", "")
 	search := c.DefaultQuery("search", "")
-
-	if page < 1 {
-		page = 1
-	}
-	if perPage < 1 || perPage > 100 {
-		perPage = 20
-	}
 
 	rides, total, err := h.analyticsRepo.ListRides(c.Request.Context(), page, perPage, status, search)
 	if err != nil {
@@ -279,12 +247,5 @@ func (h *AdminHandler) ListRides(c *gin.Context) {
 		return
 	}
 
-	totalPages := int(math.Ceil(float64(total) / float64(perPage)))
-
-	SuccessWithMeta(c, http.StatusOK, rides, &Meta{
-		Page:       page,
-		PerPage:    perPage,
-		Total:      total,
-		TotalPages: totalPages,
-	})
+	PaginatedSuccess(c, rides, page, perPage, total)
 }

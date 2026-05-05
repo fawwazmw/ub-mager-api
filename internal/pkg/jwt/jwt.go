@@ -28,13 +28,14 @@ func NewJWTService(secret string, accessTTLSeconds, refreshTTLSeconds int) *JWTS
 	}
 }
 
-func (s *JWTService) GenerateAccessToken(userID uuid.UUID, role string) (string, error) {
+func (s *JWTService) generateToken(userID uuid.UUID, role string, ttl time.Duration) (string, error) {
+	now := time.Now()
 	claims := TokenClaims{
 		UserID: userID,
 		Role:   role,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.accessTokenTTL)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+			IssuedAt:  jwt.NewNumericDate(now),
 			ID:        uuid.New().String(),
 		},
 	}
@@ -42,18 +43,12 @@ func (s *JWTService) GenerateAccessToken(userID uuid.UUID, role string) (string,
 	return token.SignedString(s.secret)
 }
 
+func (s *JWTService) GenerateAccessToken(userID uuid.UUID, role string) (string, error) {
+	return s.generateToken(userID, role, s.accessTokenTTL)
+}
+
 func (s *JWTService) GenerateRefreshToken(userID uuid.UUID, role string) (string, error) {
-	claims := TokenClaims{
-		UserID: userID,
-		Role:   role,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.refreshTokenTTL)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ID:        uuid.New().String(),
-		},
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(s.secret)
+	return s.generateToken(userID, role, s.refreshTokenTTL)
 }
 
 func (s *JWTService) ValidateToken(tokenString string) (*TokenClaims, error) {

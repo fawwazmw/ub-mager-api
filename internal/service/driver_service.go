@@ -8,9 +8,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/wardayadev/ub-mager-api/internal/cache"
 	"github.com/wardayadev/ub-mager-api/internal/model"
-	"github.com/wardayadev/ub-mager-api/internal/repository"
 )
 
 var (
@@ -18,18 +16,21 @@ var (
 	ErrDriverAlreadyExists  = errors.New("driver profile already exists")
 	ErrDriverNotVerified    = errors.New("driver not verified")
 	ErrNotADriver           = errors.New("user is not a driver")
+	ErrInvalidLicenseExpiry = errors.New("invalid license_expiry format, use YYYY-MM-DD")
+	ErrLocationRequired     = errors.New("location is required when going online")
+	ErrDriverMustBeOnline   = errors.New("driver must be online to update location")
 )
 
 type DriverService struct {
-	driverRepo  *repository.DriverRepository
-	userRepo    *repository.UserRepository
-	geoCache    *cache.DriverGeoCache
+	driverRepo DriverRepo
+	userRepo   UserRepo
+	geoCache   GeoCache
 }
 
 func NewDriverService(
-	driverRepo *repository.DriverRepository,
-	userRepo *repository.UserRepository,
-	geoCache *cache.DriverGeoCache,
+	driverRepo DriverRepo,
+	userRepo UserRepo,
+	geoCache GeoCache,
 ) *DriverService {
 	return &DriverService{
 		driverRepo: driverRepo,
@@ -85,7 +86,6 @@ type LocationResponse struct {
 }
 
 func (s *DriverService) Register(ctx context.Context, userID uuid.UUID, input RegisterDriverInput) (*model.DriverProfile, error) {
-	// Check if driver profile already exists
 	existing, err := s.driverRepo.FindByUserID(ctx, userID)
 	if err == nil && existing != nil {
 		return nil, ErrDriverAlreadyExists
@@ -94,13 +94,12 @@ func (s *DriverService) Register(ctx context.Context, userID uuid.UUID, input Re
 		return nil, err
 	}
 
-	// Parse license expiry
 	expiry, err := time.Parse("2006-01-02", input.LicenseExpiry)
 	if err != nil {
-		return nil, errors.New("invalid license_expiry format, use YYYY-MM-DD")
+		return nil, ErrInvalidLicenseExpiry
 	}
 
-	vehicleType := model.VehicleType(stringToVehicleType(input.Vehicle.Type))
+	vehicleType := stringToVehicleType(input.Vehicle.Type)
 
 	profile := &model.DriverProfile{
 		ID:             uuid.New(),
@@ -193,7 +192,13 @@ type UpdateLocationInput struct {
 	Accuracy  float64  `json:"accuracy"`
 }
 
-func (s *DriverService) ToggleStatus(ctx context.Context, userID uuid.UUID, input ToggleStatusInput) (map[string]interface{}, error) {
+type ToggleStatusResult struct {
+	IsOnline    bool              `json:"is_online"`
+	Location    *LocationResponse `json:"location,omitempty"`
+	WentOnlineAt string           `json:"went_online_at,omitempty"`
+}
+
+func (s *DriverService) ToggleStatus(ctx context.Context, userID uuid.UUID, input ToggleStatusInput) (*ToggleStatusResult, error) {
 	profile, err := s.driverRepo.FindByUserID(ctx, userID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -207,34 +212,29 @@ func (s *DriverService) ToggleStatus(ctx context.Context, userID uuid.UUID, inpu
 	}
 
 	if input.IsOnline && input.Location == nil {
-		return nil, errors.New("location is required when going online")
+		return nil, ErrLocationRequired
 	}
 
-	// Update status
 	if err := s.driverRepo.SetOnlineStatus(ctx, profile.ID, input.IsOnline); err != nil {
 		return nil, err
 	}
 
-	result := map[string]interface{}{
-		"is_online": input.IsOnline,
-	}
+	result := &ToggleStatusResult{IsOnline: input.IsOnline}
 
 	if input.IsOnline && input.Location != nil {
-		// Update location in DB and Redis
 		if err := s.driverRepo.UpdateLocation(ctx, profile.ID, input.Location.Lat, input.Location.Lng, 0, 0); err != nil {
 			return nil, err
 		}
 		if err := s.geoCache.UpdateLocation(ctx, profile.ID, input.Location.Lat, input.Location.Lng); err != nil {
 			return nil, err
 		}
-		s.geoCache.SetDriverStatus(ctx, profile.ID, "ONLINE_AVAILABLE")
+		s.geoCache.SetDriverStatus(ctx, profile.ID, model.DriverStatusOnline)
 
-		result["location"] = LocationResponse{Lat: input.Location.Lat, Lng: input.Location.Lng}
-		result["went_online_at"] = time.Now().Format(time.RFC3339)
+		result.Location = &LocationResponse{Lat: input.Location.Lat, Lng: input.Location.Lng}
+		result.WentOnlineAt = time.Now().Format(time.RFC3339)
 	} else {
-		// Remove from geo index when going offline
 		s.geoCache.RemoveDriver(ctx, profile.ID)
-		s.geoCache.SetDriverStatus(ctx, profile.ID, "OFFLINE")
+		s.geoCache.SetDriverStatus(ctx, profile.ID, model.DriverStatusOffline)
 	}
 
 	return result, nil
@@ -250,15 +250,13 @@ func (s *DriverService) UpdateLocation(ctx context.Context, userID uuid.UUID, in
 	}
 
 	if !profile.IsOnline {
-		return errors.New("driver must be online to update location")
+		return ErrDriverMustBeOnline
 	}
 
-	// Update in PostgreSQL
 	if err := s.driverRepo.UpdateLocation(ctx, profile.ID, input.Lat, input.Lng, input.Heading, input.Speed); err != nil {
 		return err
 	}
 
-	// Update in Redis GeoSet
 	if err := s.geoCache.UpdateLocation(ctx, profile.ID, input.Lat, input.Lng); err != nil {
 		return err
 	}
@@ -269,7 +267,7 @@ func (s *DriverService) UpdateLocation(ctx context.Context, userID uuid.UUID, in
 func (s *DriverService) FindNearbyDrivers(ctx context.Context, lat, lng, radiusKm float64, vehicleType string, limit int) ([]DriverProfileResponse, error) {
 	vt := model.VehicleType("")
 	if vehicleType != "" {
-		vt = model.VehicleType(stringToVehicleType(vehicleType))
+		vt = stringToVehicleType(vehicleType)
 	}
 
 	drivers, err := s.driverRepo.FindNearbyDrivers(ctx, lat, lng, radiusKm, vt, limit)
@@ -303,15 +301,15 @@ func (s *DriverService) FindNearbyDrivers(ctx context.Context, lat, lng, radiusK
 	return results, nil
 }
 
-func stringToVehicleType(s string) string {
+func stringToVehicleType(s string) model.VehicleType {
 	switch s {
 	case "motorcycle":
-		return "MOTORCYCLE"
+		return model.VehicleMotorcycle
 	case "car":
-		return "CAR"
+		return model.VehicleCar
 	case "car_xl":
-		return "CAR_XL"
+		return model.VehicleCarXL
 	default:
-		return "MOTORCYCLE"
+		return model.VehicleMotorcycle
 	}
 }

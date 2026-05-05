@@ -10,28 +10,37 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/wardayadev/ub-mager-api/internal/model"
-	"github.com/wardayadev/ub-mager-api/internal/repository"
 )
 
 var (
-	ErrRideNotFound       = errors.New("ride not found")
-	ErrActiveRideExists   = errors.New("you already have an active ride")
-	ErrRideNotCancellable = errors.New("ride cannot be cancelled in current state")
-	ErrAlreadyRated       = errors.New("you have already rated this ride")
-	ErrRideNotCompleted   = errors.New("ride must be completed before rating")
-	ErrUnauthorized       = errors.New("unauthorized to perform this action")
+	ErrRideNotFound          = errors.New("ride not found")
+	ErrActiveRideExists      = errors.New("you already have an active ride")
+	ErrRideNotCancellable    = errors.New("ride cannot be cancelled in current state")
+	ErrAlreadyRated          = errors.New("you have already rated this ride")
+	ErrRideNotCompleted      = errors.New("ride must be completed before rating")
+	ErrUnauthorized          = errors.New("unauthorized to perform this action")
+	ErrRideNoLongerAvailable = errors.New("ride is no longer available")
+	ErrInvalidTransition     = errors.New("invalid status transition")
+	ErrNoDriverToRate        = errors.New("no driver to rate")
 )
 
+var validTransitions = map[model.RideStatus][]model.RideStatus{
+	model.RideStatusMatched:         {model.RideStatusDriverEnRoute},
+	model.RideStatusDriverEnRoute:   {model.RideStatusArrivedAtPickup},
+	model.RideStatusArrivedAtPickup: {model.RideStatusInProgress},
+	model.RideStatusInProgress:      {model.RideStatusCompleted},
+}
+
 type RideService struct {
-	rideRepo   *repository.RideRepository
-	driverRepo *repository.DriverRepository
-	userRepo   *repository.UserRepository
+	rideRepo   RideRepo
+	driverRepo DriverRepo
+	userRepo   UserRepo
 }
 
 func NewRideService(
-	rideRepo *repository.RideRepository,
-	driverRepo *repository.DriverRepository,
-	userRepo *repository.UserRepository,
+	rideRepo RideRepo,
+	driverRepo DriverRepo,
+	userRepo UserRepo,
 ) *RideService {
 	return &RideService{
 		rideRepo:   rideRepo,
@@ -65,22 +74,22 @@ type RateInput struct {
 	Comment string `json:"comment" binding:"max=500"`
 }
 
-// Estimate calculates fare without creating a ride
-func (s *RideService) Estimate(ctx context.Context, input EstimateInput) (*FareBreakdown, float64, int, error) {
-	distanceM := haversineDistance(input.Pickup.Lat, input.Pickup.Lng, input.Dropoff.Lat, input.Dropoff.Lng)
-	// Rough estimate: average speed 25 km/h for motorcycle, 20 km/h for car
-	avgSpeedMps := 25.0 * 1000.0 / 3600.0 // ~6.9 m/s
-	durationS := int(distanceM / avgSpeedMps)
+func estimateRoute(pickupLat, pickupLng, dropoffLat, dropoffLng float64) (distanceM float64, durationS int) {
+	distanceM = haversineDistance(pickupLat, pickupLng, dropoffLat, dropoffLng)
+	avgSpeedMps := 25.0 * 1000.0 / 3600.0
+	durationS = int(distanceM / avgSpeedMps)
+	return
+}
 
-	vt := model.VehicleType(stringToVehicleType(input.VehicleType))
+func (s *RideService) Estimate(ctx context.Context, input EstimateInput) (*FareBreakdown, float64, int, error) {
+	distanceM, durationS := estimateRoute(input.Pickup.Lat, input.Pickup.Lng, input.Dropoff.Lat, input.Dropoff.Lng)
+	vt := stringToVehicleType(input.VehicleType)
 	breakdown := CalculateFare(vt, distanceM, durationS, 1.0)
 
 	return &breakdown, distanceM, durationS, nil
 }
 
-// RequestRide creates a new ride and starts the matching process
 func (s *RideService) RequestRide(ctx context.Context, passengerID uuid.UUID, input RequestRideInput) (*model.Ride, error) {
-	// Check for existing active ride
 	existing, err := s.rideRepo.FindActiveByPassenger(ctx, passengerID)
 	if err == nil && existing != nil {
 		return nil, ErrActiveRideExists
@@ -89,15 +98,12 @@ func (s *RideService) RequestRide(ctx context.Context, passengerID uuid.UUID, in
 		return nil, err
 	}
 
-	// Calculate estimated fare
-	distanceM := haversineDistance(input.Pickup.Lat, input.Pickup.Lng, input.Dropoff.Lat, input.Dropoff.Lng)
-	avgSpeedMps := 25.0 * 1000.0 / 3600.0
-	durationS := int(distanceM / avgSpeedMps)
+	distanceM, durationS := estimateRoute(input.Pickup.Lat, input.Pickup.Lng, input.Dropoff.Lat, input.Dropoff.Lng)
 
-	vt := model.VehicleType(stringToVehicleType(input.VehicleType))
+	vt := stringToVehicleType(input.VehicleType)
 	fare := CalculateFare(vt, distanceM, durationS, 1.0)
 
-	pm := model.PaymentMethod("CASH")
+	pm := model.PaymentCash
 	if input.PaymentMethod == "ewallet" {
 		pm = model.PaymentEwallet
 	}
@@ -130,7 +136,6 @@ func (s *RideService) RequestRide(ctx context.Context, passengerID uuid.UUID, in
 	return ride, nil
 }
 
-// GetRide returns ride details
 func (s *RideService) GetRide(ctx context.Context, rideID uuid.UUID) (*model.Ride, error) {
 	ride, err := s.rideRepo.FindByID(ctx, rideID)
 	if err != nil {
@@ -142,7 +147,6 @@ func (s *RideService) GetRide(ctx context.Context, rideID uuid.UUID) (*model.Rid
 	return ride, nil
 }
 
-// GetActiveRide returns the passenger's current active ride
 func (s *RideService) GetActiveRide(ctx context.Context, passengerID uuid.UUID) (*model.Ride, error) {
 	ride, err := s.rideRepo.FindActiveByPassenger(ctx, passengerID)
 	if err != nil {
@@ -154,64 +158,56 @@ func (s *RideService) GetActiveRide(ctx context.Context, passengerID uuid.UUID) 
 	return ride, nil
 }
 
-// CancelRide cancels a ride
 func (s *RideService) CancelRide(ctx context.Context, rideID, userID uuid.UUID, reason string) error {
 	ride, err := s.rideRepo.FindByID(ctx, rideID)
 	if err != nil {
 		return ErrRideNotFound
 	}
 
-	// Verify the user is the passenger or driver
 	if ride.PassengerID != userID && (ride.DriverID == nil || *ride.DriverID != userID) {
 		return ErrUnauthorized
 	}
 
-	// Only cancellable in certain states
 	switch ride.Status {
 	case model.RideStatusSearching, model.RideStatusMatched, model.RideStatusDriverEnRoute, model.RideStatusArrivedAtPickup:
-		// OK to cancel
 	default:
 		return ErrRideNotCancellable
 	}
 
 	now := time.Now()
-	return s.rideRepo.UpdateStatus(ctx, rideID, model.RideStatusCancelled, map[string]interface{}{
+	return s.rideRepo.UpdateStatus(ctx, rideID, model.RideStatusCancelled, map[string]any{
 		"cancelled_at":        now,
 		"cancellation_reason": reason,
 	})
 }
 
-// AcceptRide — driver accepts a ride (userID is the user's ID, not driver profile ID)
 func (s *RideService) AcceptRide(ctx context.Context, rideID, userID uuid.UUID) error {
 	ride, err := s.rideRepo.FindByID(ctx, rideID)
 	if err != nil {
 		return ErrRideNotFound
 	}
 	if ride.Status != model.RideStatusSearching {
-		return errors.New("ride is no longer available")
+		return ErrRideNoLongerAvailable
 	}
 
-	// Look up driver profile by user ID
 	profile, err := s.driverRepo.FindByUserID(ctx, userID)
 	if err != nil {
 		return ErrDriverNotFound
 	}
 
 	now := time.Now()
-	return s.rideRepo.UpdateStatus(ctx, rideID, model.RideStatusMatched, map[string]interface{}{
+	return s.rideRepo.UpdateStatus(ctx, rideID, model.RideStatusMatched, map[string]any{
 		"driver_id":  profile.ID,
 		"matched_at": now,
 	})
 }
 
-// UpdateRideStatus — driver updates ride status through lifecycle (userID is user's ID)
 func (s *RideService) UpdateRideStatus(ctx context.Context, rideID uuid.UUID, userID uuid.UUID, newStatus model.RideStatus) error {
 	ride, err := s.rideRepo.FindByID(ctx, rideID)
 	if err != nil {
 		return ErrRideNotFound
 	}
 
-	// Look up driver profile by user ID
 	profile, err := s.driverRepo.FindByUserID(ctx, userID)
 	if err != nil {
 		return ErrUnauthorized
@@ -221,17 +217,9 @@ func (s *RideService) UpdateRideStatus(ctx context.Context, rideID uuid.UUID, us
 		return ErrUnauthorized
 	}
 
-	// Validate state transitions
-	validTransitions := map[model.RideStatus][]model.RideStatus{
-		model.RideStatusMatched:         {model.RideStatusDriverEnRoute},
-		model.RideStatusDriverEnRoute:   {model.RideStatusArrivedAtPickup},
-		model.RideStatusArrivedAtPickup: {model.RideStatusInProgress},
-		model.RideStatusInProgress:      {model.RideStatusCompleted},
-	}
-
 	allowed, ok := validTransitions[ride.Status]
 	if !ok {
-		return errors.New("invalid status transition")
+		return ErrInvalidTransition
 	}
 
 	valid := false
@@ -242,22 +230,20 @@ func (s *RideService) UpdateRideStatus(ctx context.Context, rideID uuid.UUID, us
 		}
 	}
 	if !valid {
-		return errors.New("invalid status transition from " + string(ride.Status) + " to " + string(newStatus))
+		return ErrInvalidTransition
 	}
 
 	now := time.Now()
-	updates := map[string]interface{}{}
+	updates := map[string]any{}
 
 	switch newStatus {
 	case model.RideStatusDriverEnRoute:
-		// no extra fields
 	case model.RideStatusArrivedAtPickup:
 		updates["driver_arrived_at"] = now
 	case model.RideStatusInProgress:
 		updates["picked_up_at"] = now
 	case model.RideStatusCompleted:
 		updates["completed_at"] = now
-		// Calculate actual duration
 		if ride.PickedUpAt != nil {
 			updates["actual_duration_s"] = int(now.Sub(*ride.PickedUpAt).Seconds())
 		}
@@ -266,7 +252,6 @@ func (s *RideService) UpdateRideStatus(ctx context.Context, rideID uuid.UUID, us
 	return s.rideRepo.UpdateStatus(ctx, rideID, newStatus, updates)
 }
 
-// RateRide — rate a completed ride
 func (s *RideService) RateRide(ctx context.Context, rideID, raterID uuid.UUID, input RateInput) error {
 	ride, err := s.rideRepo.FindByID(ctx, rideID)
 	if err != nil {
@@ -277,19 +262,16 @@ func (s *RideService) RateRide(ctx context.Context, rideID, raterID uuid.UUID, i
 		return ErrRideNotCompleted
 	}
 
-	// Check if already rated
 	existing, err := s.rideRepo.FindRatingByRideAndRater(ctx, rideID, raterID)
 	if err == nil && existing != nil {
 		return ErrAlreadyRated
 	}
 
-	// Determine ratee
 	var rateeID uuid.UUID
 	if ride.PassengerID == raterID {
 		if ride.DriverID == nil {
-			return errors.New("no driver to rate")
+			return ErrNoDriverToRate
 		}
-		// Passenger rating driver — get user_id from driver profile
 		driver, err := s.driverRepo.FindByID(ctx, *ride.DriverID)
 		if err != nil {
 			return err
@@ -311,7 +293,6 @@ func (s *RideService) RateRide(ctx context.Context, rideID, raterID uuid.UUID, i
 	return s.rideRepo.CreateRating(ctx, rating)
 }
 
-// GetHistory returns paginated ride history
 func (s *RideService) GetHistory(ctx context.Context, userID uuid.UUID, role string, page, perPage int) ([]model.Ride, int64, error) {
 	if page < 1 {
 		page = 1
@@ -322,7 +303,6 @@ func (s *RideService) GetHistory(ctx context.Context, userID uuid.UUID, role str
 	return s.rideRepo.FindHistory(ctx, userID, role, page, perPage)
 }
 
-// haversineDistance calculates distance in meters between two coordinates
 func haversineDistance(lat1, lng1, lat2, lng2 float64) float64 {
 	const R = 6371000 // Earth radius in meters
 	dLat := (lat2 - lat1) * math.Pi / 180

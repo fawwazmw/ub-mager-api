@@ -1,38 +1,31 @@
 package middleware
 
 import (
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
-func CORS() gin.HandlerFunc {
-	allowedOrigins := os.Getenv("CORS_ORIGINS")
-	origins := []string{"*"}
-	if allowedOrigins != "" {
-		origins = strings.Split(allowedOrigins, ",")
+func CORS(allowedOriginsRaw string) gin.HandlerFunc {
+	origins := strings.Split(allowedOriginsRaw, ",")
+	for i := range origins {
+		origins[i] = strings.TrimSpace(origins[i])
 	}
+
+	wildcard := len(origins) == 1 && (origins[0] == "*" || origins[0] == "")
 
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
-		allowed := false
 
-		if origins[0] == "*" {
-			allowed = true
-			c.Header("Access-Control-Allow-Origin", "*")
+		if wildcard {
+			c.Header("Access-Control-Allow-Origin", origin)
 		} else {
 			for _, o := range origins {
-				if strings.TrimSpace(o) == origin {
-					allowed = true
+				if o == origin {
 					c.Header("Access-Control-Allow-Origin", origin)
 					break
 				}
 			}
-		}
-
-		if !allowed {
-			c.Header("Access-Control-Allow-Origin", origins[0])
 		}
 
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
@@ -40,6 +33,7 @@ func CORS() gin.HandlerFunc {
 		c.Header("Access-Control-Expose-Headers", "X-Request-ID")
 		c.Header("Access-Control-Allow-Credentials", "true")
 		c.Header("Access-Control-Max-Age", "86400")
+		c.Header("Vary", "Origin")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)

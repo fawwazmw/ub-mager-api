@@ -11,7 +11,6 @@ import (
 
 	"github.com/wardayadev/ub-mager-api/internal/model"
 	jwtpkg "github.com/wardayadev/ub-mager-api/internal/pkg/jwt"
-	"github.com/wardayadev/ub-mager-api/internal/repository"
 )
 
 var (
@@ -22,11 +21,11 @@ var (
 )
 
 type AuthService struct {
-	userRepo   *repository.UserRepository
+	userRepo   UserRepo
 	jwtService *jwtpkg.JWTService
 }
 
-func NewAuthService(userRepo *repository.UserRepository, jwtService *jwtpkg.JWTService) *AuthService {
+func NewAuthService(userRepo UserRepo, jwtService *jwtpkg.JWTService) *AuthService {
 	return &AuthService{
 		userRepo:   userRepo,
 		jwtService: jwtService,
@@ -80,7 +79,6 @@ func toUserResponse(user *model.User) *UserResponse {
 }
 
 func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*AuthResponse, string, error) {
-	// Check phone uniqueness
 	existing, err := s.userRepo.FindByPhone(ctx, input.Phone)
 	if err == nil && existing != nil {
 		return nil, "", ErrPhoneAlreadyExists
@@ -89,7 +87,6 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*AuthR
 		return nil, "", err
 	}
 
-	// Check email uniqueness
 	existing, err = s.userRepo.FindByEmail(ctx, input.Email)
 	if err == nil && existing != nil {
 		return nil, "", ErrEmailAlreadyExists
@@ -98,14 +95,12 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*AuthR
 		return nil, "", err
 	}
 
-	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, "", err
 	}
 
-	// Create user
-	role := model.UserRole(stringToUpper(input.Role))
+	role := parseUserRole(input.Role)
 	user := &model.User{
 		ID:           uuid.New(),
 		FullName:     input.FullName,
@@ -120,7 +115,6 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*AuthR
 		return nil, "", err
 	}
 
-	// Generate tokens
 	accessToken, err := s.jwtService.GenerateAccessToken(user.ID, string(user.Role))
 	if err != nil {
 		return nil, "", err
@@ -152,12 +146,10 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*AuthRespons
 		return nil, "", ErrInvalidCredentials
 	}
 
-	// Update last login
 	now := time.Now()
 	user.LastLoginAt = &now
 	_ = s.userRepo.Update(ctx, user)
 
-	// Generate tokens
 	accessToken, err := s.jwtService.GenerateAccessToken(user.ID, string(user.Role))
 	if err != nil {
 		return nil, "", err
@@ -187,7 +179,6 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshTokenStr string) 
 		return nil, "", ErrUserNotFound
 	}
 
-	// Generate new tokens
 	accessToken, err := s.jwtService.GenerateAccessToken(user.ID, string(user.Role))
 	if err != nil {
 		return nil, "", err
@@ -272,15 +263,15 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID uuid.UUID, inpu
 	return s.userRepo.Update(ctx, user)
 }
 
-func stringToUpper(s string) string {
+func parseUserRole(s string) model.UserRole {
 	switch s {
 	case "passenger":
-		return "PASSENGER"
+		return model.RolePassenger
 	case "driver":
-		return "DRIVER"
+		return model.RoleDriver
 	case "admin":
-		return "ADMIN"
+		return model.RoleAdmin
 	default:
-		return "PASSENGER"
+		return model.RolePassenger
 	}
 }

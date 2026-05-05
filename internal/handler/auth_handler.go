@@ -10,11 +10,22 @@ import (
 )
 
 type AuthHandler struct {
-	authService *service.AuthService
+	authService     *service.AuthService
+	secureCookie    bool
+	refreshCookieTTL int
 }
 
-func NewAuthHandler(authService *service.AuthService) *AuthHandler {
-	return &AuthHandler{authService: authService}
+func NewAuthHandler(authService *service.AuthService, isProduction bool, refreshTTL time.Duration) *AuthHandler {
+	return &AuthHandler{
+		authService:     authService,
+		secureCookie:    isProduction,
+		refreshCookieTTL: int(refreshTTL.Seconds()),
+	}
+}
+
+func (h *AuthHandler) setRefreshCookie(c *gin.Context, token string, maxAge int) {
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("refresh_token", token, maxAge, "/", "", h.secureCookie, true)
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
@@ -37,8 +48,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// Set refresh token as HttpOnly cookie
-	c.SetCookie("refresh_token", refreshToken, int((7 * 24 * time.Hour).Seconds()), "/", "", false, true)
+	h.setRefreshCookie(c, refreshToken, h.refreshCookieTTL)
 
 	Success(c, http.StatusCreated, resp)
 }
@@ -60,7 +70,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	c.SetCookie("refresh_token", refreshToken, int((7 * 24 * time.Hour).Seconds()), "/", "", false, true)
+	h.setRefreshCookie(c, refreshToken, h.refreshCookieTTL)
 
 	Success(c, http.StatusOK, resp)
 }
@@ -78,14 +88,13 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	c.SetCookie("refresh_token", newRefreshToken, int((7 * 24 * time.Hour).Seconds()), "/", "", false, true)
+	h.setRefreshCookie(c, newRefreshToken, h.refreshCookieTTL)
 
 	Success(c, http.StatusOK, resp)
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
-	// Clear the refresh token cookie
-	c.SetCookie("refresh_token", "", -1, "/", "", false, true)
+	h.setRefreshCookie(c, "", -1)
 
-	Success(c, http.StatusOK, gin.H{"message": "Successfully logged out"})
+	SuccessMessage(c, "Successfully logged out")
 }

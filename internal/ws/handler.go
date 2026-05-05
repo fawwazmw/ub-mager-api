@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"github.com/wardayadev/ub-mager-api/internal/model"
 )
 
 // HandleMessage routes incoming messages to the appropriate handler
@@ -23,7 +24,7 @@ func (h *Hub) HandleMessage(client *Client, msg *Message) {
 		}
 
 	case MsgTypeDriverLocation:
-		if client.Role != "DRIVER" {
+		if client.Role != string(model.RoleDriver) {
 			h.sendError(client, "Only drivers can send location updates")
 			return
 		}

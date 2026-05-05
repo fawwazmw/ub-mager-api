@@ -19,6 +19,8 @@ const (
 	RideStatusCancelled       RideStatus = "CANCELLED"
 )
 
+var TerminalStatuses = []RideStatus{RideStatusCompleted, RideStatusCancelled}
+
 type PaymentMethod string
 
 const (
