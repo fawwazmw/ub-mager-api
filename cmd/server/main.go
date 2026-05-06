@@ -48,7 +48,7 @@ func main() {
 	log.Info().Msg("connected to PostgreSQL")
 
 	// Auto-migrate
-	if err := db.AutoMigrate(&model.User{}, &model.DriverProfile{}, &model.Ride{}, &model.Rating{}, &model.Report{}, &model.ChatMessage{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.DriverProfile{}, &model.Ride{}, &model.Rating{}, &model.Report{}, &model.ChatMessage{}, &model.Task{}); err != nil {
 		log.Fatal().Err(err).Msg("failed to run auto-migration")
 	}
 	log.Info().Msg("database migrated")
@@ -80,6 +80,7 @@ func main() {
 	analyticsRepo := repository.NewAnalyticsRepository(db)
 	reportRepo := repository.NewReportRepository(db)
 	chatRepo := repository.NewChatRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
 
 	// Initialize caches
 	driverGeoCache := cache.NewDriverGeoCache(rdb)
@@ -92,6 +93,7 @@ func main() {
 	authService := service.NewAuthService(userRepo, jwtService)
 	driverService := service.NewDriverService(driverRepo, userRepo, driverGeoCache)
 	rideService := service.NewRideService(rideRepo, driverRepo, userRepo)
+	taskService := service.NewTaskService(taskRepo)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService, cfg.ServerEnv == "production", jwtService.GetRefreshTTL())
@@ -101,6 +103,7 @@ func main() {
 	adminHandler := handler.NewAdminHandler(analyticsRepo)
 	reportHandler := handler.NewReportHandler(reportRepo)
 	chatHandler := handler.NewChatHandler(chatRepo, wsHub)
+	taskHandler := handler.NewTaskHandler(taskService, taskRepo)
 	userAdminHandler := handler.NewUserAdminHandler(userRepo)
 
 	// Setup Gin
@@ -231,6 +234,19 @@ func main() {
 				reports.POST("", reportHandler.Submit)
 			}
 
+			// Tasks
+			tasks := protected.Group("/tasks")
+			{
+				tasks.POST("", taskHandler.Create)
+				tasks.GET("", taskHandler.Feed)
+				tasks.GET("/mine", taskHandler.MyTasks)
+				tasks.GET("/helping", taskHandler.MyHelperTasks)
+				tasks.GET("/:id", taskHandler.GetByID)
+				tasks.PUT("/:id/accept", taskHandler.Accept)
+				tasks.PUT("/:id/status", taskHandler.UpdateStatus)
+				tasks.PUT("/:id/cancel", taskHandler.Cancel)
+			}
+
 			// Ride routes — Passenger
 			rides := protected.Group("/rides")
 			{
@@ -271,6 +287,8 @@ func main() {
 				admin.GET("/reports", reportHandler.List)
 				admin.GET("/reports/pending-count", reportHandler.CountPending)
 				admin.PUT("/reports/:id/resolve", reportHandler.Resolve)
+
+				admin.GET("/tasks", taskHandler.AdminList)
 
 				admin.GET("/users", userAdminHandler.ListUsers)
 				admin.PUT("/users/:id/suspend", userAdminHandler.SuspendUser)
