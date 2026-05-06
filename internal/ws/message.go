@@ -9,6 +9,7 @@ const (
 	MsgTypeRideReject     = "RIDE_REJECT"
 	MsgTypePing           = "PING"
 	MsgTypeSubscribeRide  = "SUBSCRIBE_RIDE"
+	MsgTypeChatSend       = "CHAT_SEND"
 )
 
 // Message types — Server to Client
@@ -18,6 +19,7 @@ const (
 	MsgTypeRideStatus     = "RIDE_STATUS"
 	MsgTypeLocationUpdate = "LOCATION_UPDATE"
 	MsgTypeETAUpdate      = "ETA_UPDATE"
+	MsgTypeChatMessage    = "CHAT_MESSAGE"
 	MsgTypePong           = "PONG"
 	MsgTypeError          = "ERROR"
 	MsgTypeConnected      = "CONNECTED"

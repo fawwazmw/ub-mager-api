@@ -172,6 +172,25 @@ func (h *Hub) GetClient(userID string) *Client {
 	return h.clients[userID]
 }
 
+func (h *Hub) BroadcastToRide(rideID string, msg *Message, excludeUserID string) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	for userID, client := range h.clients {
+		if client.ActiveRideID == rideID && userID != excludeUserID {
+			select {
+			case client.Send <- data:
+			default:
+			}
+		}
+	}
+}
+
 var (
 	ErrUserNotConnected = &WsError{Code: "USER_NOT_CONNECTED", Message: "User is not connected"}
 	ErrTimeout          = &WsError{Code: "TIMEOUT", Message: "Request timed out"}

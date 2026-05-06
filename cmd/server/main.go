@@ -48,7 +48,7 @@ func main() {
 	log.Info().Msg("connected to PostgreSQL")
 
 	// Auto-migrate
-	if err := db.AutoMigrate(&model.User{}, &model.DriverProfile{}, &model.Ride{}, &model.Rating{}, &model.Report{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.DriverProfile{}, &model.Ride{}, &model.Rating{}, &model.Report{}, &model.ChatMessage{}); err != nil {
 		log.Fatal().Err(err).Msg("failed to run auto-migration")
 	}
 	log.Info().Msg("database migrated")
@@ -79,6 +79,7 @@ func main() {
 	rideRepo := repository.NewRideRepository(db)
 	analyticsRepo := repository.NewAnalyticsRepository(db)
 	reportRepo := repository.NewReportRepository(db)
+	chatRepo := repository.NewChatRepository(db)
 
 	// Initialize caches
 	driverGeoCache := cache.NewDriverGeoCache(rdb)
@@ -99,6 +100,7 @@ func main() {
 	rideHandler := handler.NewRideHandler(rideService)
 	adminHandler := handler.NewAdminHandler(analyticsRepo)
 	reportHandler := handler.NewReportHandler(reportRepo)
+	chatHandler := handler.NewChatHandler(chatRepo, wsHub)
 	userAdminHandler := handler.NewUserAdminHandler(userRepo)
 
 	// Setup Gin
@@ -239,6 +241,8 @@ func main() {
 				rides.GET("/:id", rideHandler.GetRide)
 				rides.PUT("/:id/cancel", rideHandler.CancelRide)
 				rides.POST("/:id/rate", rideHandler.RateRide)
+				rides.POST("/:id/messages", chatHandler.SendMessage)
+				rides.GET("/:id/messages", chatHandler.GetMessages)
 				// Driver actions on rides
 				rides.PUT("/:id/accept", rideHandler.AcceptRide)
 				rides.PUT("/:id/status", rideHandler.DriverUpdateStatus)
@@ -261,6 +265,7 @@ func main() {
 				admin.GET("/rides/counts", adminHandler.GetRideCountsByStatus)
 				admin.GET("/rides/:id", adminHandler.GetRideDetail)
 				admin.PUT("/rides/:id/cancel", adminHandler.CancelRide)
+				admin.GET("/rides/:id/messages", chatHandler.AdminGetMessages)
 
 				// Reports management
 				admin.GET("/reports", reportHandler.List)
