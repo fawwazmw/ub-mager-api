@@ -18,11 +18,11 @@ const (
 type ReportCategory string
 
 const (
-	ReportCategoryRude      ReportCategory = "RUDE_BEHAVIOR"
-	ReportCategorySafety    ReportCategory = "SAFETY_CONCERN"
-	ReportCategoryFraud     ReportCategory = "FRAUD"
-	ReportCategorySpam      ReportCategory = "SPAM"
-	ReportCategoryOther     ReportCategory = "OTHER"
+	ReportCategoryRude   ReportCategory = "RUDE_BEHAVIOR"
+	ReportCategorySafety ReportCategory = "SAFETY_CONCERN"
+	ReportCategoryFraud  ReportCategory = "FRAUD"
+	ReportCategorySpam   ReportCategory = "SPAM"
+	ReportCategoryOther  ReportCategory = "OTHER"
 )
 
 type Report struct {

@@ -36,15 +36,15 @@ type LocationDetail struct {
 }
 
 type RequestRideResponse struct {
-	RideID        uuid.UUID          `json:"ride_id"`
-	Status        model.RideStatus   `json:"status"`
-	Pickup        LocationDetail     `json:"pickup"`
-	Dropoff       LocationDetail     `json:"dropoff"`
-	VehicleType   model.VehicleType  `json:"vehicle_type"`
+	RideID        uuid.UUID           `json:"ride_id"`
+	Status        model.RideStatus    `json:"status"`
+	Pickup        LocationDetail      `json:"pickup"`
+	Dropoff       LocationDetail      `json:"dropoff"`
+	VehicleType   model.VehicleType   `json:"vehicle_type"`
 	PaymentMethod model.PaymentMethod `json:"payment_method"`
-	FareEstimate  float64            `json:"fare_estimate"`
-	CreatedAt     time.Time          `json:"created_at"`
-	Message       string             `json:"message"`
+	FareEstimate  float64             `json:"fare_estimate"`
+	CreatedAt     time.Time           `json:"created_at"`
+	Message       string              `json:"message"`
 }
 
 func (h *RideHandler) Estimate(c *gin.Context) {

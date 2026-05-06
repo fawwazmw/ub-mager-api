@@ -3,21 +3,21 @@ package model
 type CampusZone string
 
 const (
-	ZoneFILKOM  CampusZone = "FILKOM"
-	ZoneFTP     CampusZone = "FTP"
-	ZoneFEB     CampusZone = "FEB"
-	ZoneFH      CampusZone = "FH"
-	ZoneFK      CampusZone = "FK"
-	ZoneFKG     CampusZone = "FKG"
-	ZoneFIA     CampusZone = "FIA"
-	ZoneFISIP   CampusZone = "FISIP"
-	ZoneFMIPA   CampusZone = "FMIPA"
-	ZoneFPIK    CampusZone = "FPIK"
-	ZoneFT      CampusZone = "FT"
-	ZoneFPET    CampusZone = "FPET"
+	ZoneFILKOM   CampusZone = "FILKOM"
+	ZoneFTP      CampusZone = "FTP"
+	ZoneFEB      CampusZone = "FEB"
+	ZoneFH       CampusZone = "FH"
+	ZoneFK       CampusZone = "FK"
+	ZoneFKG      CampusZone = "FKG"
+	ZoneFIA      CampusZone = "FIA"
+	ZoneFISIP    CampusZone = "FISIP"
+	ZoneFMIPA    CampusZone = "FMIPA"
+	ZoneFPIK     CampusZone = "FPIK"
+	ZoneFT       CampusZone = "FT"
+	ZoneFPET     CampusZone = "FPET"
 	ZoneRektorat CampusZone = "REKTORAT"
-	ZoneGOR     CampusZone = "GOR"
-	ZoneOther   CampusZone = "OTHER"
+	ZoneGOR      CampusZone = "GOR"
+	ZoneOther    CampusZone = "OTHER"
 )
 
 var ValidCampusZones = []CampusZone{

@@ -45,7 +45,7 @@ func (r *AnalyticsRepository) GetRideStats(ctx context.Context, period string) (
 	}
 
 	var avgMetrics struct {
-		AvgDistance  *float64
+		AvgDistance *float64
 		AvgDuration *float64
 	}
 	r.db.WithContext(ctx).Model(&model.Ride{}).

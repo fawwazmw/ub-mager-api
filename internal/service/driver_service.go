@@ -55,22 +55,22 @@ type VehicleInput struct {
 }
 
 type DriverProfileResponse struct {
-	DriverID          uuid.UUID        `json:"driver_id"`
-	UserID            uuid.UUID        `json:"user_id"`
-	FullName          string           `json:"full_name"`
-	Phone             string           `json:"phone"`
-	AvatarURL         *string          `json:"avatar_url"`
-	LicenseNumber     string           `json:"license_number"`
-	IsVerified        bool             `json:"is_verified"`
-	IsOnline          bool             `json:"is_online"`
-	IsStudentVerified bool             `json:"is_student_verified"`
-	Rating            float64          `json:"rating"`
-	TotalRides        int              `json:"total_rides"`
-	Vehicle           VehicleResponse  `json:"vehicle"`
+	DriverID          uuid.UUID         `json:"driver_id"`
+	UserID            uuid.UUID         `json:"user_id"`
+	FullName          string            `json:"full_name"`
+	Phone             string            `json:"phone"`
+	AvatarURL         *string           `json:"avatar_url"`
+	LicenseNumber     string            `json:"license_number"`
+	IsVerified        bool              `json:"is_verified"`
+	IsOnline          bool              `json:"is_online"`
+	IsStudentVerified bool              `json:"is_student_verified"`
+	Rating            float64           `json:"rating"`
+	TotalRides        int               `json:"total_rides"`
+	Vehicle           VehicleResponse   `json:"vehicle"`
 	Location          *LocationResponse `json:"current_location,omitempty"`
-	AcceptanceRate    float64          `json:"acceptance_rate"`
-	Badges            []string         `json:"badges"`
-	CreatedAt         time.Time        `json:"created_at"`
+	AcceptanceRate    float64           `json:"acceptance_rate"`
+	Badges            []string          `json:"badges"`
+	CreatedAt         time.Time         `json:"created_at"`
 }
 
 type VehicleResponse struct {
@@ -181,8 +181,8 @@ func (s *DriverService) GetProfile(ctx context.Context, userID uuid.UUID) (*Driv
 }
 
 type ToggleStatusInput struct {
-	IsOnline bool             `json:"is_online"`
-	Location *LocationInput   `json:"location"`
+	IsOnline bool           `json:"is_online"`
+	Location *LocationInput `json:"location"`
 }
 
 type LocationInput struct {
@@ -191,17 +191,17 @@ type LocationInput struct {
 }
 
 type UpdateLocationInput struct {
-	Lat       float64  `json:"lat" binding:"required"`
-	Lng       float64  `json:"lng" binding:"required"`
-	Speed     float64  `json:"speed"`
-	Heading   float64  `json:"heading"`
-	Accuracy  float64  `json:"accuracy"`
+	Lat      float64 `json:"lat" binding:"required"`
+	Lng      float64 `json:"lng" binding:"required"`
+	Speed    float64 `json:"speed"`
+	Heading  float64 `json:"heading"`
+	Accuracy float64 `json:"accuracy"`
 }
 
 type ToggleStatusResult struct {
-	IsOnline    bool              `json:"is_online"`
-	Location    *LocationResponse `json:"location,omitempty"`
-	WentOnlineAt string           `json:"went_online_at,omitempty"`
+	IsOnline     bool              `json:"is_online"`
+	Location     *LocationResponse `json:"location,omitempty"`
+	WentOnlineAt string            `json:"went_online_at,omitempty"`
 }
 
 func (s *DriverService) ToggleStatus(ctx context.Context, userID uuid.UUID, input ToggleStatusInput) (*ToggleStatusResult, error) {

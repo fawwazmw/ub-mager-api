@@ -47,10 +47,10 @@ func (r *DriverRepository) UpdateLocation(ctx context.Context, driverID uuid.UUI
 		Model(&model.DriverProfile{}).
 		Where("id = ?", driverID).
 		Updates(map[string]any{
-			"latitude":        lat,
-			"longitude":       lng,
-			"heading":         heading,
-			"speed":           speed,
+			"latitude":         lat,
+			"longitude":        lng,
+			"heading":          heading,
+			"speed":            speed,
 			"last_location_at": gorm.Expr("NOW()"),
 		}).Error
 }

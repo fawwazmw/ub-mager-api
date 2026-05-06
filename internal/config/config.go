@@ -10,11 +10,11 @@ import (
 
 type Config struct {
 	// Server
-	ServerPort         string
-	ServerEnv          string
-	ReadTimeoutSec     int
-	WriteTimeoutSec    int
-	IdleTimeoutSec     int
+	ServerPort      string
+	ServerEnv       string
+	ReadTimeoutSec  int
+	WriteTimeoutSec int
+	IdleTimeoutSec  int
 
 	// PostgreSQL
 	DBHost     string

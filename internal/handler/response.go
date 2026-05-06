@@ -9,9 +9,9 @@ import (
 )
 
 type Response struct {
-	Success bool      `json:"success"`
-	Data    any       `json:"data,omitempty"`
-	Meta    *Meta     `json:"meta,omitempty"`
+	Success bool       `json:"success"`
+	Data    any        `json:"data,omitempty"`
+	Meta    *Meta      `json:"meta,omitempty"`
 	Error   *ErrorBody `json:"error,omitempty"`
 }
 

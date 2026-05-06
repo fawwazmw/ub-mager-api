@@ -22,14 +22,14 @@ func (r *ReportRepository) Create(ctx context.Context, report *model.Report) err
 }
 
 type ReportListItem struct {
-	ID             string    `json:"id"`
-	ReporterName   string    `json:"reporter_name"`
-	ReportedName   string    `json:"reported_name"`
-	Category       string    `json:"category"`
-	Description    string    `json:"description"`
-	Status         string    `json:"status"`
-	RideID         *string   `json:"ride_id"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID           string    `json:"id"`
+	ReporterName string    `json:"reporter_name"`
+	ReportedName string    `json:"reported_name"`
+	Category     string    `json:"category"`
+	Description  string    `json:"description"`
+	Status       string    `json:"status"`
+	RideID       *string   `json:"ride_id"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 func (r *ReportRepository) List(ctx context.Context, page, perPage int, status string) ([]ReportListItem, int64, error) {

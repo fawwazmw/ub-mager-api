@@ -10,15 +10,15 @@ import (
 )
 
 type AuthHandler struct {
-	authService     *service.AuthService
-	secureCookie    bool
+	authService      *service.AuthService
+	secureCookie     bool
 	refreshCookieTTL int
 }
 
 func NewAuthHandler(authService *service.AuthService, isProduction bool, refreshTTL time.Duration) *AuthHandler {
 	return &AuthHandler{
-		authService:     authService,
-		secureCookie:    isProduction,
+		authService:      authService,
+		secureCookie:     isProduction,
 		refreshCookieTTL: int(refreshTTL.Seconds()),
 	}
 }

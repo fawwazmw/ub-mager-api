@@ -29,49 +29,49 @@ const (
 )
 
 type Ride struct {
-	ID               uuid.UUID      `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()" json:"id"`
-	PassengerID      uuid.UUID      `gorm:"type:uuid;not null;index:idx_rides_passenger_status,priority:1" json:"passenger_id"`
-	DriverID         *uuid.UUID     `gorm:"type:uuid;index" json:"driver_id,omitempty"`
-	Status           RideStatus     `gorm:"type:varchar(30);not null;default:'SEARCHING';index:idx_rides_passenger_status,priority:2;index:idx_rides_status_completed;index:idx_rides_status_requested" json:"status"`
-	VehicleType      VehicleType    `gorm:"type:varchar(20);not null" json:"vehicle_type"`
+	ID          uuid.UUID   `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()" json:"id"`
+	PassengerID uuid.UUID   `gorm:"type:uuid;not null;index:idx_rides_passenger_status,priority:1" json:"passenger_id"`
+	DriverID    *uuid.UUID  `gorm:"type:uuid;index" json:"driver_id,omitempty"`
+	Status      RideStatus  `gorm:"type:varchar(30);not null;default:'SEARCHING';index:idx_rides_passenger_status,priority:2;index:idx_rides_status_completed;index:idx_rides_status_requested" json:"status"`
+	VehicleType VehicleType `gorm:"type:varchar(20);not null" json:"vehicle_type"`
 
 	// Locations
-	PickupLat        float64        `gorm:"not null" json:"pickup_lat"`
-	PickupLng        float64        `gorm:"not null" json:"pickup_lng"`
-	PickupAddress    string         `gorm:"type:text;not null" json:"pickup_address"`
-	PickupZone       CampusZone     `gorm:"type:varchar(20)" json:"pickup_zone,omitempty"`
-	DropoffLat       float64        `gorm:"not null" json:"dropoff_lat"`
-	DropoffLng       float64        `gorm:"not null" json:"dropoff_lng"`
-	DropoffAddress   string         `gorm:"type:text;not null" json:"dropoff_address"`
-	DropoffZone      CampusZone     `gorm:"type:varchar(20)" json:"dropoff_zone,omitempty"`
+	PickupLat      float64    `gorm:"not null" json:"pickup_lat"`
+	PickupLng      float64    `gorm:"not null" json:"pickup_lng"`
+	PickupAddress  string     `gorm:"type:text;not null" json:"pickup_address"`
+	PickupZone     CampusZone `gorm:"type:varchar(20)" json:"pickup_zone,omitempty"`
+	DropoffLat     float64    `gorm:"not null" json:"dropoff_lat"`
+	DropoffLng     float64    `gorm:"not null" json:"dropoff_lng"`
+	DropoffAddress string     `gorm:"type:text;not null" json:"dropoff_address"`
+	DropoffZone    CampusZone `gorm:"type:varchar(20)" json:"dropoff_zone,omitempty"`
 
 	// Route & fare
-	EstimatedDistanceM float64     `json:"estimated_distance_m"`
-	EstimatedDurationS int         `json:"estimated_duration_s"`
-	ActualDistanceM    float64     `json:"actual_distance_m"`
-	ActualDurationS    int         `json:"actual_duration_s"`
-	BaseFare           float64     `gorm:"type:numeric(12,2);not null;default:0" json:"base_fare"`
-	SurgeMultiplier    float64     `gorm:"type:numeric(4,2);not null;default:1.00" json:"surge_multiplier"`
-	TotalFare          float64     `gorm:"type:numeric(12,2);not null;default:0" json:"total_fare"`
+	EstimatedDistanceM float64 `json:"estimated_distance_m"`
+	EstimatedDurationS int     `json:"estimated_duration_s"`
+	ActualDistanceM    float64 `json:"actual_distance_m"`
+	ActualDurationS    int     `json:"actual_duration_s"`
+	BaseFare           float64 `gorm:"type:numeric(12,2);not null;default:0" json:"base_fare"`
+	SurgeMultiplier    float64 `gorm:"type:numeric(4,2);not null;default:1.00" json:"surge_multiplier"`
+	TotalFare          float64 `gorm:"type:numeric(12,2);not null;default:0" json:"total_fare"`
 
 	// Payment
-	PaymentMethod    PaymentMethod  `gorm:"type:varchar(20);not null;default:'CASH'" json:"payment_method"`
+	PaymentMethod PaymentMethod `gorm:"type:varchar(20);not null;default:'CASH'" json:"payment_method"`
 
 	// Notes
-	Notes            string         `gorm:"type:text" json:"notes,omitempty"`
+	Notes string `gorm:"type:text" json:"notes,omitempty"`
 
 	// Timestamps
-	RequestedAt      time.Time      `gorm:"not null;default:now();index:idx_rides_status_requested" json:"requested_at"`
-	MatchedAt        *time.Time     `json:"matched_at,omitempty"`
-	DriverArrivedAt  *time.Time     `json:"driver_arrived_at,omitempty"`
-	PickedUpAt       *time.Time     `json:"picked_up_at,omitempty"`
-	CompletedAt      *time.Time     `gorm:"index:idx_rides_status_completed" json:"completed_at,omitempty"`
-	CancelledAt      *time.Time     `json:"cancelled_at,omitempty"`
-	CancellationReason string       `gorm:"type:text" json:"cancellation_reason,omitempty"`
+	RequestedAt        time.Time  `gorm:"not null;default:now();index:idx_rides_status_requested" json:"requested_at"`
+	MatchedAt          *time.Time `json:"matched_at,omitempty"`
+	DriverArrivedAt    *time.Time `json:"driver_arrived_at,omitempty"`
+	PickedUpAt         *time.Time `json:"picked_up_at,omitempty"`
+	CompletedAt        *time.Time `gorm:"index:idx_rides_status_completed" json:"completed_at,omitempty"`
+	CancelledAt        *time.Time `json:"cancelled_at,omitempty"`
+	CancellationReason string     `gorm:"type:text" json:"cancellation_reason,omitempty"`
 
-	CreatedAt        time.Time      `json:"created_at"`
-	UpdatedAt        time.Time      `json:"updated_at"`
-	DeletedAt        gorm.DeletedAt `gorm:"index" json:"-"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 func (Ride) TableName() string {
