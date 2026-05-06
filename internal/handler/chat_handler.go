@@ -43,7 +43,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 
 	msg := &model.ChatMessage{
 		ID:        uuid.New(),
-		RideID:    rideID,
+		RideID:    &rideID,
 		SenderID:  userID,
 		Content:   input.Content,
 		CreatedAt: time.Now(),
@@ -57,6 +57,53 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	h.broadcastChatMessage(userID.String(), rideID.String(), msg)
 
 	Success(c, http.StatusCreated, msg)
+}
+
+func (h *ChatHandler) SendTaskMessage(c *gin.Context) {
+	userID, _ := GetUserID(c)
+	taskID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		Error(c, http.StatusBadRequest, "INVALID_ID", "Invalid task ID")
+		return
+	}
+
+	var input SendMessageInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		Error(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+
+	msg := &model.ChatMessage{
+		ID:        uuid.New(),
+		TaskID:    &taskID,
+		SenderID:  userID,
+		Content:   input.Content,
+		CreatedAt: time.Now(),
+	}
+
+	if err := h.chatRepo.Create(c.Request.Context(), msg); err != nil {
+		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to send message")
+		return
+	}
+
+	Success(c, http.StatusCreated, msg)
+}
+
+func (h *ChatHandler) GetTaskMessages(c *gin.Context) {
+	taskID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		Error(c, http.StatusBadRequest, "INVALID_ID", "Invalid task ID")
+		return
+	}
+
+	limit := ParseIntQuery(c, "limit", 50, 1, 100)
+	messages, err := h.chatRepo.FindByTaskID(c.Request.Context(), taskID, limit)
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get messages")
+		return
+	}
+
+	Success(c, http.StatusOK, messages)
 }
 
 func (h *ChatHandler) GetMessages(c *gin.Context) {

@@ -98,6 +98,59 @@ Copy `.env.example` to `.env`. Key variables:
 - **WebSocket**: Used for real-time driver location tracking
 - **Logging**: Use `zerolog` (structured JSON logging)
 
+## Git & Versioning
+
+Current version: `0.1.0` (in development)
+
+**Branch strategy:**
+- `develop` — daily work, push here
+- `main` — stable releases only
+
+**Daily push workflow:**
+```bash
+git add .
+git commit -m "feat: description of what changed"
+git push -u origin develop
+```
+
+**Commit message prefixes:**
+- `feat:` — new feature
+- `fix:` — bug fix
+- `refactor:` — code restructure (no behavior change)
+- `docs:` — documentation only
+- `test:` — adding/fixing tests
+- `chore:` — config, deps, CI changes
+
+**When ready to release a version:**
+```bash
+# 1. Make sure develop is clean and tests pass
+go build ./... && go test ./...
+
+# 2. Update CHANGELOG.md — move [Unreleased] items to new version section
+
+# 3. Update version in cmd/server/main.go
+#    var version = "0.2.0"
+
+# 4. Commit the version bump
+git add .
+git commit -m "chore: release v0.2.0"
+git push
+
+# 5. Tag it
+git tag v0.2.0
+git push --tags
+
+# 6. (Optional) Create GitHub Release
+gh release create v0.2.0 --title "v0.2.0" --notes "See CHANGELOG.md"
+```
+
+**Version bumping rules:**
+- Bug fix → PATCH: `0.1.0` → `0.1.1`
+- New feature → MINOR: `0.1.0` → `0.2.0`
+- First production release → `1.0.0` (when app ships to real users)
+
+**Note:** Don't tag every commit. Tag only when you want to mark a release point (e.g., before Flutter team starts testing a new batch of features).
+
 ## Related Repos
 
 - `ub-mager-ml` — ML demand prediction service (Python/FastAPI, port 8000)

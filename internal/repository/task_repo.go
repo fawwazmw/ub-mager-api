@@ -17,6 +17,10 @@ func NewTaskRepository(db *gorm.DB) *TaskRepository {
 	return &TaskRepository{db: db}
 }
 
+func (r *TaskRepository) DB() *gorm.DB {
+	return r.db
+}
+
 func (r *TaskRepository) Create(ctx context.Context, task *model.Task) error {
 	return r.db.WithContext(ctx).Create(task).Error
 }

@@ -293,7 +293,7 @@ func (s *RideService) RateRide(ctx context.Context, rideID, raterID uuid.UUID, i
 
 	rating := &model.Rating{
 		ID:      uuid.New(),
-		RideID:  rideID,
+		RideID:  &rideID,
 		RaterID: raterID,
 		RateeID: rateeID,
 		Score:   input.Score,

@@ -79,13 +79,14 @@ func (Ride) TableName() string {
 }
 
 type Rating struct {
-	ID        uuid.UUID `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()" json:"id"`
-	RideID    uuid.UUID `gorm:"type:uuid;not null;index" json:"ride_id"`
-	RaterID   uuid.UUID `gorm:"type:uuid;not null" json:"rater_id"`
-	RateeID   uuid.UUID `gorm:"type:uuid;not null;index" json:"ratee_id"`
-	Score     int       `gorm:"type:smallint;not null" json:"score"`
-	Comment   string    `gorm:"type:text" json:"comment,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        uuid.UUID  `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()" json:"id"`
+	RideID    *uuid.UUID `gorm:"type:uuid;index" json:"ride_id,omitempty"`
+	TaskID    *uuid.UUID `gorm:"type:uuid;index" json:"task_id,omitempty"`
+	RaterID   uuid.UUID  `gorm:"type:uuid;not null" json:"rater_id"`
+	RateeID   uuid.UUID  `gorm:"type:uuid;not null;index" json:"ratee_id"`
+	Score     int        `gorm:"type:smallint;not null" json:"score"`
+	Comment   string     `gorm:"type:text" json:"comment,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 func (Rating) TableName() string {

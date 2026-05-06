@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -34,13 +35,20 @@ func Logger() gin.HandlerFunc {
 		reqID, _ := c.Get("request_id")
 		reqIDStr, _ := reqID.(string)
 
-		event.
+		logger := event.
 			Str("request_id", reqIDStr).
 			Str("method", c.Request.Method).
 			Str("path", path).
+			Str("query", c.Request.URL.RawQuery).
 			Int("status", status).
 			Dur("latency", latency).
-			Str("ip", c.ClientIP()).
-			Msg("request")
+			Int("bytes", c.Writer.Size()).
+			Str("ip", c.ClientIP())
+
+		if userID, exists := c.Get("user_id"); exists {
+			logger = logger.Str("user_id", fmt.Sprintf("%v", userID))
+		}
+
+		logger.Msg("request")
 	}
 }

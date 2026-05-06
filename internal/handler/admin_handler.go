@@ -1,19 +1,22 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/wardayadev/ub-mager-api/internal/cache"
 	"github.com/wardayadev/ub-mager-api/internal/repository"
 )
 
 type AdminHandler struct {
 	analyticsRepo AnalyticsRepo
+	statsCache    *cache.StatsCache
 }
 
-func NewAdminHandler(analyticsRepo AnalyticsRepo) *AdminHandler {
-	return &AdminHandler{analyticsRepo: analyticsRepo}
+func NewAdminHandler(analyticsRepo AnalyticsRepo, statsCache *cache.StatsCache) *AdminHandler {
+	return &AdminHandler{analyticsRepo: analyticsRepo, statsCache: statsCache}
 }
 
 type BulkCancelResponse struct {
@@ -22,11 +25,26 @@ type BulkCancelResponse struct {
 }
 
 func (h *AdminHandler) GetDashboardStats(c *gin.Context) {
+	if h.statsCache != nil {
+		if cached, err := h.statsCache.Get(c.Request.Context()); err == nil {
+			var stats repository.DashboardStats
+			if json.Unmarshal(cached, &stats) == nil {
+				Success(c, http.StatusOK, &stats)
+				return
+			}
+		}
+	}
+
 	stats, err := h.analyticsRepo.GetDashboardStats(c.Request.Context())
 	if err != nil {
 		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get stats")
 		return
 	}
+
+	if h.statsCache != nil {
+		_ = h.statsCache.Set(c.Request.Context(), stats)
+	}
+
 	Success(c, http.StatusOK, stats)
 }
 

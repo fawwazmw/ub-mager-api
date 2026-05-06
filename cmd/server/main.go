@@ -25,7 +25,7 @@ import (
 	"github.com/wardayadev/ub-mager-api/internal/ws"
 )
 
-var version = "dev"
+var version = "0.1.0"
 
 func main() {
 	// Setup zerolog
@@ -48,7 +48,7 @@ func main() {
 	log.Info().Msg("connected to PostgreSQL")
 
 	// Auto-migrate
-	if err := db.AutoMigrate(&model.User{}, &model.DriverProfile{}, &model.Ride{}, &model.Rating{}, &model.Report{}, &model.ChatMessage{}, &model.Task{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.DriverProfile{}, &model.Ride{}, &model.Rating{}, &model.Report{}, &model.ChatMessage{}, &model.Task{}, &model.Notification{}, &model.PasswordReset{}, &model.AuditLog{}); err != nil {
 		log.Fatal().Err(err).Msg("failed to run auto-migration")
 	}
 	log.Info().Msg("database migrated")
@@ -81,9 +81,12 @@ func main() {
 	reportRepo := repository.NewReportRepository(db)
 	chatRepo := repository.NewChatRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
+	earningsRepo := repository.NewEarningsRepository(db)
+	notifRepo := repository.NewNotificationRepository(db)
 
 	// Initialize caches
 	driverGeoCache := cache.NewDriverGeoCache(rdb)
+	statsCache := cache.NewStatsCache(rdb)
 
 	// Initialize WebSocket hub
 	wsHub := ws.NewHub()
@@ -100,10 +103,14 @@ func main() {
 	userHandler := handler.NewUserHandler(authService)
 	driverHandler := handler.NewDriverHandler(driverService)
 	rideHandler := handler.NewRideHandler(rideService)
-	adminHandler := handler.NewAdminHandler(analyticsRepo)
+	adminHandler := handler.NewAdminHandler(analyticsRepo, statsCache)
 	reportHandler := handler.NewReportHandler(reportRepo)
 	chatHandler := handler.NewChatHandler(chatRepo, wsHub)
 	taskHandler := handler.NewTaskHandler(taskService, taskRepo)
+	earningsHandler := handler.NewEarningsHandler(earningsRepo, driverRepo)
+	notifHandler := handler.NewNotificationHandler(notifRepo)
+	searchHandler := handler.NewSearchHandler(db)
+	passwordResetHandler := handler.NewPasswordResetHandler(db)
 	userAdminHandler := handler.NewUserAdminHandler(userRepo)
 
 	// Setup Gin
@@ -112,10 +119,13 @@ func main() {
 	}
 
 	r := gin.New()
+	r.Use(middleware.Gzip())
 	r.Use(middleware.RequestID())
+	r.Use(middleware.MetricsCollector())
 	r.Use(middleware.Logger())
 	r.Use(middleware.CORS(cfg.CORSOrigins))
-	r.Use(middleware.BodyLimit(1 << 20)) // 1MB max request body
+	r.Use(middleware.BodyLimit(1 << 20))
+	r.Use(middleware.Sanitize())
 	r.Use(middleware.Timeout(30 * time.Second))
 	r.Use(gin.Recovery())
 
@@ -195,8 +205,13 @@ func main() {
 		c.JSON(http.StatusOK, versionResponse{Version: version, Service: "ub-mager-api"})
 	})
 
+	r.GET("/metrics", func(c *gin.Context) {
+		c.JSON(http.StatusOK, middleware.GetMetricsSnapshot())
+	})
+
 	// API v1 routes
 	v1 := r.Group("/api/v1")
+	v1.Use(middleware.APIVersion("v1"))
 	{
 		// Auth (public, rate limited)
 		auth := v1.Group("/auth")
@@ -205,6 +220,8 @@ func main() {
 			auth.POST("/login", middleware.RateLimit(10, time.Minute), authHandler.Login)
 			auth.POST("/refresh", middleware.RateLimit(30, time.Minute), authHandler.Refresh)
 			auth.POST("/logout", authHandler.Logout)
+			auth.POST("/request-reset", middleware.RateLimit(3, time.Minute), passwordResetHandler.RequestReset)
+			auth.POST("/reset-password", middleware.RateLimit(5, time.Minute), passwordResetHandler.ResetPassword)
 		}
 
 		// Protected routes
@@ -226,7 +243,21 @@ func main() {
 				drivers.GET("/me", driverHandler.GetProfile)
 				drivers.PUT("/me/status", driverHandler.ToggleStatus)
 				drivers.PUT("/me/location", driverHandler.UpdateLocation)
+				drivers.GET("/me/earnings", earningsHandler.GetSummary)
+				drivers.GET("/me/earnings/daily", earningsHandler.GetDaily)
 			}
+
+			// Notifications
+			notifs := protected.Group("/notifications")
+			{
+				notifs.GET("", notifHandler.List)
+				notifs.GET("/unread-count", notifHandler.UnreadCount)
+				notifs.PUT("/:id/read", notifHandler.MarkRead)
+				notifs.PUT("/read-all", notifHandler.MarkAllRead)
+			}
+
+			// Search
+			protected.GET("/search", searchHandler.GlobalSearch)
 
 			// Reports
 			reports := protected.Group("/reports")
@@ -245,6 +276,9 @@ func main() {
 				tasks.PUT("/:id/accept", taskHandler.Accept)
 				tasks.PUT("/:id/status", taskHandler.UpdateStatus)
 				tasks.PUT("/:id/cancel", taskHandler.Cancel)
+				tasks.POST("/:id/rate", taskHandler.RateHelper)
+				tasks.POST("/:id/messages", chatHandler.SendTaskMessage)
+				tasks.GET("/:id/messages", chatHandler.GetTaskMessages)
 			}
 
 			// Ride routes — Passenger
@@ -267,6 +301,7 @@ func main() {
 			// Admin routes
 			admin := protected.Group("/admin")
 			admin.Use(middleware.RoleRequired(string(model.RoleAdmin)))
+			admin.Use(middleware.AuditLog(db))
 			{
 				admin.GET("/dashboard", adminHandler.GetDashboardStats)
 				admin.GET("/drivers", adminHandler.ListDrivers)
@@ -293,6 +328,7 @@ func main() {
 				admin.GET("/users", userAdminHandler.ListUsers)
 				admin.PUT("/users/:id/suspend", userAdminHandler.SuspendUser)
 				admin.PUT("/users/:id/unsuspend", userAdminHandler.UnsuspendUser)
+				admin.POST("/users/:id/reset-password", passwordResetHandler.AdminResetForUser)
 			}
 
 			// Analytics routes (accessible by admin)

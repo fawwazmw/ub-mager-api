@@ -48,6 +48,24 @@ func (r *ChatRepository) FindByRideID(ctx context.Context, rideID uuid.UUID, lim
 	return results, err
 }
 
+func (r *ChatRepository) FindByTaskID(ctx context.Context, taskID uuid.UUID, limit int) ([]ChatMessageItem, error) {
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
+
+	var results []ChatMessageItem
+	err := r.db.WithContext(ctx).
+		Table("chat_messages").
+		Select("chat_messages.id, chat_messages.sender_id, users.full_name as sender_name, users.role as sender_role, chat_messages.content, chat_messages.created_at").
+		Joins("JOIN users ON users.id = chat_messages.sender_id").
+		Where("chat_messages.task_id = ?", taskID).
+		Order("chat_messages.created_at ASC").
+		Limit(limit).
+		Scan(&results).Error
+
+	return results, err
+}
+
 func (r *ChatRepository) CountByRideID(ctx context.Context, rideID uuid.UUID) (int64, error) {
 	var count int64
 	err := r.db.WithContext(ctx).

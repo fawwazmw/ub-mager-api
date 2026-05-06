@@ -189,6 +189,63 @@ func (h *TaskHandler) MyHelperTasks(c *gin.Context) {
 	PaginatedSuccess(c, tasks, page, perPage, total)
 }
 
+type RateTaskInput struct {
+	Score   int    `json:"score" binding:"required,min=1,max=5"`
+	Comment string `json:"comment" binding:"max=500"`
+}
+
+func (h *TaskHandler) RateHelper(c *gin.Context) {
+	userID, _ := GetUserID(c)
+	taskID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		Error(c, http.StatusBadRequest, "INVALID_ID", "Invalid task ID")
+		return
+	}
+
+	var input RateTaskInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		Error(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+
+	task, err := h.taskService.GetByID(c.Request.Context(), taskID)
+	if err != nil {
+		Error(c, http.StatusNotFound, "TASK_NOT_FOUND", "Task not found")
+		return
+	}
+
+	if task.Status != model.TaskStatusCompleted {
+		Error(c, http.StatusBadRequest, "TASK_NOT_COMPLETED", "Task must be completed before rating")
+		return
+	}
+
+	if task.CreatorID != userID {
+		Error(c, http.StatusForbidden, "FORBIDDEN", "Only task creator can rate the helper")
+		return
+	}
+
+	if task.HelperID == nil {
+		Error(c, http.StatusBadRequest, "NO_HELPER", "No helper assigned to this task")
+		return
+	}
+
+	rating := &model.Rating{
+		ID:      uuid.New(),
+		TaskID:  &taskID,
+		RaterID: userID,
+		RateeID: *task.HelperID,
+		Score:   input.Score,
+		Comment: input.Comment,
+	}
+
+	if err := h.taskRepo.DB().WithContext(c.Request.Context()).Create(rating).Error; err != nil {
+		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to rate helper")
+		return
+	}
+
+	SuccessMessage(c, "Helper rated successfully")
+}
+
 func (h *TaskHandler) AdminList(c *gin.Context) {
 	page, perPage := ParsePagination(c)
 	category := c.DefaultQuery("category", "")

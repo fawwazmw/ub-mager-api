@@ -244,9 +244,10 @@ func main() {
 
 		baseTime := time.Now().Add(-2 * time.Hour)
 		for _, msg := range chatMessages {
+			rideID := firstRide.ID
 			chat := &model.ChatMessage{
 				ID:        uuid.New(),
-				RideID:    firstRide.ID,
+				RideID:    &rideID,
 				SenderID:  msg.senderID,
 				Content:   msg.content,
 				CreatedAt: baseTime.Add(msg.offset),
@@ -439,7 +440,7 @@ func seedCompletedRide(ctx context.Context, db *gorm.DB, rng *rand.Rand, passeng
 
 	ratingObj := &model.Rating{
 		ID:      uuid.New(),
-		RideID:  ride.ID,
+		RideID:  &ride.ID,
 		RaterID: passengerID,
 		RateeID: driverID,
 		Score:   rating,
