@@ -81,6 +81,30 @@ services:
       - osrm_data:/data
     command: osrm-routed --algorithm mld /data/java-latest.osrm
 
+  # ─── API Server ─────────────────────────────────────
+  api:
+    build:
+      context: .
+      args:
+        VERSION: local
+    container_name: ubmager-api
+    restart: unless-stopped
+    profiles: [full]
+    ports:
+      - "${SERVER_PORT:-8081}:8081"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/ready"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
 volumes:
   postgres_data:
   redis_data:

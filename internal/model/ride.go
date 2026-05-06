@@ -30,9 +30,9 @@ const (
 
 type Ride struct {
 	ID               uuid.UUID      `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()" json:"id"`
-	PassengerID      uuid.UUID      `gorm:"type:uuid;not null;index" json:"passenger_id"`
+	PassengerID      uuid.UUID      `gorm:"type:uuid;not null;index:idx_rides_passenger_status,priority:1" json:"passenger_id"`
 	DriverID         *uuid.UUID     `gorm:"type:uuid;index" json:"driver_id,omitempty"`
-	Status           RideStatus     `gorm:"type:varchar(30);not null;default:'SEARCHING';index" json:"status"`
+	Status           RideStatus     `gorm:"type:varchar(30);not null;default:'SEARCHING';index:idx_rides_passenger_status,priority:2;index:idx_rides_status_completed;index:idx_rides_status_requested" json:"status"`
 	VehicleType      VehicleType    `gorm:"type:varchar(20);not null" json:"vehicle_type"`
 
 	// Locations
@@ -61,11 +61,11 @@ type Ride struct {
 	Notes            string         `gorm:"type:text" json:"notes,omitempty"`
 
 	// Timestamps
-	RequestedAt      time.Time      `gorm:"not null;default:now()" json:"requested_at"`
+	RequestedAt      time.Time      `gorm:"not null;default:now();index:idx_rides_status_requested" json:"requested_at"`
 	MatchedAt        *time.Time     `json:"matched_at,omitempty"`
 	DriverArrivedAt  *time.Time     `json:"driver_arrived_at,omitempty"`
 	PickedUpAt       *time.Time     `json:"picked_up_at,omitempty"`
-	CompletedAt      *time.Time     `json:"completed_at,omitempty"`
+	CompletedAt      *time.Time     `gorm:"index:idx_rides_status_completed" json:"completed_at,omitempty"`
 	CancelledAt      *time.Time     `json:"cancelled_at,omitempty"`
 	CancellationReason string       `gorm:"type:text" json:"cancellation_reason,omitempty"`
 
